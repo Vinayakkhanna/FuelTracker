@@ -1,0 +1,1208 @@
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import {
+  AreaChart, Area, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
+} from "recharts";
+
+/* ═══════════════════════════════════════════════════════════
+   INTERNAL CONFIG  (never exposed to user)
+═══════════════════════════════════════════════════════════ */
+const CONFIG = {
+  GOOGLE_MAPS_API: "YOUR_GOOGLE_MAPS_KEY",
+  TOLLGURU_API:    "YOUR_TOLLGURU_KEY",
+  AI_API:          "YOUR_ANTHROPIC_KEY",
+};
+
+/* ═══════════════════════════════════════════════════════════
+   CITY COORDINATES
+═══════════════════════════════════════════════════════════ */
+const CITIES = {
+  delhi:{lat:28.6139,lng:77.2090},noida:{lat:28.5355,lng:77.3910},
+  gurgaon:{lat:28.4595,lng:77.0266},faridabad:{lat:28.4089,lng:77.3178},
+  mumbai:{lat:19.0760,lng:72.8777},pune:{lat:18.5204,lng:73.8567},
+  nashik:{lat:19.9975,lng:73.7898},nagpur:{lat:21.1458,lng:79.0882},
+  aurangabad:{lat:19.8762,lng:75.3433},
+  bangalore:{lat:12.9716,lng:77.5946},bengaluru:{lat:12.9716,lng:77.5946},
+  mysore:{lat:12.2958,lng:76.6394},hubli:{lat:15.3647,lng:75.1240},
+  mangalore:{lat:12.9141,lng:74.8560},
+  chennai:{lat:13.0827,lng:80.2707},coimbatore:{lat:11.0168,lng:76.9558},
+  madurai:{lat:9.9252,lng:78.1198},trichy:{lat:10.7905,lng:78.7047},
+  hyderabad:{lat:17.3850,lng:78.4867},visakhapatnam:{lat:17.6868,lng:83.2185},
+  vijayawada:{lat:16.5062,lng:80.6480},warangal:{lat:17.9784,lng:79.5941},
+  kolkata:{lat:22.5726,lng:88.3639},siliguri:{lat:26.7271,lng:88.3953},
+  durgapur:{lat:23.5204,lng:87.3119},
+  ahmedabad:{lat:23.0225,lng:72.5714},surat:{lat:21.1702,lng:72.8311},
+  vadodara:{lat:22.3072,lng:73.1812},rajkot:{lat:22.3039,lng:70.8022},
+  jaipur:{lat:26.9124,lng:75.7873},jodhpur:{lat:26.2389,lng:73.0243},
+  udaipur:{lat:24.5854,lng:73.7125},kota:{lat:25.2138,lng:75.8648},
+  ajmer:{lat:26.4499,lng:74.6399},bikaner:{lat:28.0229,lng:73.3119},
+  lucknow:{lat:26.8467,lng:80.9462},kanpur:{lat:26.4499,lng:80.3319},
+  agra:{lat:27.1767,lng:78.0081},varanasi:{lat:25.3176,lng:82.9739},
+  prayagraj:{lat:25.4358,lng:81.8463},meerut:{lat:28.9845,lng:77.7064},
+  gorakhpur:{lat:26.7606,lng:83.3732},
+  chandigarh:{lat:30.7333,lng:76.7794},amritsar:{lat:31.6340,lng:74.8723},
+  ludhiana:{lat:30.9010,lng:75.8573},jalandhar:{lat:31.3260,lng:75.5762},
+  mohali:{lat:30.7046,lng:76.7179},
+  bhopal:{lat:23.2599,lng:77.4126},indore:{lat:22.7196,lng:75.8577},
+  gwalior:{lat:26.2183,lng:78.1828},jabalpur:{lat:23.1815,lng:79.9864},
+  patna:{lat:25.5941,lng:85.1376},ranchi:{lat:23.3441,lng:85.3096},
+  jamshedpur:{lat:22.8046,lng:86.2029},raipur:{lat:21.2514,lng:81.6296},
+  bhubaneswar:{lat:20.2961,lng:85.8189},
+  kochi:{lat:9.9312,lng:76.2673},thiruvananthapuram:{lat:8.5241,lng:76.9366},
+  kozhikode:{lat:11.2588,lng:75.7804},thrissur:{lat:10.5276,lng:76.2144},
+  dehradun:{lat:30.3165,lng:78.0322},haridwar:{lat:29.9457,lng:78.1642},
+  shimla:{lat:31.1048,lng:77.1734},jammu:{lat:32.7266,lng:74.8570},
+  srinagar:{lat:34.0837,lng:74.7973},
+  guwahati:{lat:26.1445,lng:91.7362},shillong:{lat:25.5788,lng:91.8933},
+};
+
+function findCoords(city="") {
+  const c = city.toLowerCase().trim().replace(/,.*$/, "");
+  for (const [k, v] of Object.entries(CITIES)) {
+    if (c === k || c.startsWith(k) || k.startsWith(c)) return { ...v, found:true };
+  }
+  return { lat:22.5+Math.random()*6, lng:78+Math.random()*6, found:false };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FUEL PRICE DATABASE
+═══════════════════════════════════════════════════════════ */
+const FUEL_DB = {
+  petrol:{
+    delhi:94.72,noida:94.72,gurgaon:94.72,chandigarh:94.24,amritsar:94.18,
+    ludhiana:94.21,lucknow:94.65,kanpur:94.58,agra:94.58,varanasi:94.72,
+    dehradun:94.48,shimla:96.64,ahmedabad:96.63,surat:96.86,vadodara:96.74,
+    rajkot:96.93,jaipur:104.88,jodhpur:104.95,udaipur:105.12,kota:104.88,
+    mumbai:106.31,pune:106.18,nashik:106.47,nagpur:110.89,aurangabad:106.54,
+    kochi:106.68,thiruvananthapuram:106.84,kozhikode:106.92,thrissur:106.76,
+    bangalore:102.86,bengaluru:102.86,mysore:102.92,hubli:103.14,mangalore:106.82,
+    chennai:102.63,coimbatore:102.77,madurai:102.81,trichy:102.68,
+    hyderabad:107.41,visakhapatnam:108.12,vijayawada:111.27,warangal:111.14,
+    kolkata:104.95,siliguri:105.12,durgapur:105.08,
+    bhopal:108.65,indore:108.44,gwalior:108.52,jabalpur:108.61,
+    patna:107.43,ranchi:102.16,raipur:101.83,bhubaneswar:103.19,
+    guwahati:96.33,jammu:91.68,srinagar:89.76,default:103.50,
+  },
+  diesel:{
+    delhi:87.62,mumbai:94.03,bangalore:88.89,chennai:88.55,
+    hyderabad:95.65,ahmedabad:89.96,jaipur:90.19,lucknow:87.58,
+    chandigarh:87.44,nagpur:92.12,pune:91.79,kolkata:91.82,
+    bhopal:93.10,indore:92.88,kochi:92.44,default:90.00,
+  },
+  cng:{
+    delhi:76.59,mumbai:66.00,ahmedabad:88.50,pune:80.00,
+    hyderabad:92.00,lucknow:78.00,jaipur:84.00,default:80.00,
+  },
+  electric:{ default:0 },
+};
+
+function getFuelPrice(city="", type="petrol") {
+  const db = FUEL_DB[type] || FUEL_DB.petrol;
+  const c = city.toLowerCase().replace(/,.*$/, "").trim();
+  for (const [k,v] of Object.entries(db)) {
+    if (k==="default") continue;
+    if (c===k || c.startsWith(k) || k.startsWith(c)) return v;
+  }
+  return db.default;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   VEHICLES
+═══════════════════════════════════════════════════════════ */
+const VEHICLES = {
+  hatchback: {label:"Hatchback",          icon:"🚗",mileage:18,fuelType:"petrol",tollM:1.0},
+  sedan:     {label:"Sedan",              icon:"🚗",mileage:15,fuelType:"petrol",tollM:1.0},
+  suv:       {label:"SUV / Crossover",    icon:"🛻",mileage:12,fuelType:"petrol",tollM:1.5},
+  luxury:    {label:"Luxury Car",         icon:"🏎️",mileage:9, fuelType:"petrol",tollM:1.5},
+  bike100:   {label:"Bike (100–150cc)",   icon:"🏍️",mileage:55,fuelType:"petrol",tollM:0.4},
+  bike200:   {label:"Sports Bike (200+)", icon:"🏍️",mileage:32,fuelType:"petrol",tollM:0.4},
+  ebike:     {label:"Electric Bike",      icon:"⚡",mileage:0, fuelType:"electric",tollM:0.2,cpk:0.5},
+  ecar:      {label:"Electric Car",       icon:"⚡",mileage:0, fuelType:"electric",tollM:1.0,cpk:1.1},
+  autorick:  {label:"Auto Rickshaw",      icon:"🛺",mileage:28,fuelType:"cng",    tollM:0.5},
+  pickup:    {label:"Pickup Truck",       icon:"🚚",mileage:10,fuelType:"diesel",  tollM:1.8},
+  minitruck: {label:"Mini Truck (Ace)",   icon:"🚛",mileage:14,fuelType:"diesel",  tollM:1.5},
+  truck2:    {label:"Truck 2-Axle",       icon:"🚛",mileage:8, fuelType:"diesel",  tollM:2.5},
+  truck3:    {label:"Truck 3-Axle",       icon:"🚛",mileage:6, fuelType:"diesel",  tollM:3.2},
+  truckmulti:{label:"Truck Multi-Axle",   icon:"🚛",mileage:4, fuelType:"diesel",  tollM:4.5},
+  bus2:      {label:"Bus (2-Axle)",       icon:"🚌",mileage:6, fuelType:"diesel",  tollM:2.0},
+  volvo:     {label:"Volvo / AC Bus",     icon:"🚌",mileage:5, fuelType:"diesel",  tollM:2.8},
+  tractor:   {label:"Tractor",            icon:"🚜",mileage:8, fuelType:"diesel",  tollM:0.8},
+};
+
+/* ═══════════════════════════════════════════════════════════
+   SERVICE LAYER
+═══════════════════════════════════════════════════════════ */
+function haversineKm(a,b) {
+  const R=6371, dLat=(b.lat-a.lat)*Math.PI/180, dLng=(b.lng-a.lng)*Math.PI/180;
+  const x=Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+
+function buildWaypoints(a,b,km) {
+  const pts=[{lat:a.lat,lng:a.lng}];
+  const n=Math.min(7,Math.max(3,Math.floor(km/80)));
+  for (let i=1;i<n;i++) {
+    const t=i/n;
+    pts.push({
+      lat:a.lat+(b.lat-a.lat)*t+(Math.random()-0.5)*1.1,
+      lng:a.lng+(b.lng-a.lng)*t+(Math.random()-0.5)*1.1,
+    });
+  }
+  pts.push({lat:b.lat,lng:b.lng});
+  return pts;
+}
+
+function efficiencyRating(mileage,fuelType) {
+  if (fuelType==="electric") return {label:"EV — Zero Emission",pct:100,color:"#22d3ee",grade:"S"};
+  if (mileage>=25) return {label:"Excellent",pct:88,color:"#10b981",grade:"A+"};
+  if (mileage>=18) return {label:"Very Good", pct:72,color:"#10b981",grade:"A"};
+  if (mileage>=13) return {label:"Good",      pct:55,color:"#f59e0b",grade:"B"};
+  if (mileage>=9)  return {label:"Average",   pct:37,color:"#f97316",grade:"C"};
+  return               {label:"Low",       pct:18,color:"#f43f5e",grade:"D"};
+}
+
+const routeService = async (from, to, vKey, customRate, customMileage) => {
+  await new Promise(r=>setTimeout(r,1100));
+  const c1=findCoords(from), c2=findCoords(to);
+  if (!c1.found&&!c2.found) throw new Error("Could not locate these cities. Check spelling.");
+  const straight=haversineKm(c1,c2);
+  const km=Math.round(straight*1.27);
+  const v=VEHICLES[vKey];
+  const rate=customRate||getFuelPrice(from,v.fuelType);
+  const usedMileage=customMileage||v.mileage;
+  const fuelCost=v.fuelType==="electric"?Math.round(km*(v.cpk||1)):Math.round((km/usedMileage)*rate);
+  const fuelUsed=v.fuelType==="electric"?0:+(km/usedMileage).toFixed(1);
+  const toll=Math.round(km*1.75*v.tollM);
+  const tollFreeCost=Math.round(fuelCost*1.09);
+  const durationMin=Math.round(km/72*60);
+  const hrs=Math.floor(durationMin/60), rem=durationMin%60;
+  return {
+    km, fuelCost, fuelUsed, toll, total:fuelCost+toll,
+    tollFreeTotal:tollFreeCost, saving:fuelCost+toll-tollFreeCost,
+    rate, fuelType:v.fuelType, mileage:usedMileage,
+    duration:`${hrs>0?hrs+"h ":""}${rem}m`,
+    cpkm:((fuelCost+toll)/km).toFixed(2),
+    from, to, vKey,
+    fromCoords:c1, toCoords:c2,
+    waypoints:buildWaypoints(c1,c2,km),
+    eff:efficiencyRating(usedMileage,v.fuelType),
+  };
+};
+
+const AI_FN = (q) => {
+  const lo=q.toLowerCase();
+  if (/mileage|efficiency|fuel saving|improve/i.test(lo))
+    return "🔧 **Mileage Improvement Tips:**\n\n• Tyre pressure: 10% underinflated = 3% worse mileage. Check weekly.\n• Optimal speed: 60–80 km/h on highways — sweet spot for Indian roads\n• Gentle acceleration: aggressive driving wastes 25% more fuel\n• Engine oil: always use manufacturer-specified grade\n• AC at 24°C vs 18°C saves ~8% fuel on city roads\n• Avoid idling >30 sec — switch off, saves ₹2–3/min\n• Air filter: clean every 10,000 km for better combustion";
+  if (/toll|fastag|nhai|plaza/i.test(lo))
+    return "🛣️ **NHAI Toll Guide:**\n\n• FASTag is mandatory — cash lanes attract 2× penalty\n• NH48 Delhi–Jaipur: ₹195 for car (4 plazas)\n• NH48 Delhi–Mumbai: ₹790 for car (14 plazas)\n• NH44 Delhi–Bangalore: ₹1,480 for car\n• NH19 Delhi–Kolkata: ₹1,210 for car\n• Keep FASTag wallet ≥ ₹200 (below ₹100 = flagged)\n• Monthly pass available on select commuter routes\n• EVs get toll exemption in Maharashtra, Rajasthan, Gujarat";
+  if (/petrol|diesel|price|cheap|expensive|city/i.test(lo))
+    return "⛽ **City Fuel Prices (Apr 2026):**\n\n📉 Cheapest:\n• Srinagar ₹89.76/L\n• Jammu ₹91.68/L\n• Chandigarh ₹94.24/L\n• Delhi ₹94.72/L\n\n📈 Most Expensive:\n• Vijayawada ₹111.27/L\n• Nagpur ₹110.89/L\n• Hyderabad ₹107.41/L\n• Mumbai ₹106.31/L\n\nDiesel is ₹6–8/L cheaper everywhere. CNG 35% cheaper per km than petrol.";
+  if (/electric|ev|charge|battery|charging/i.test(lo))
+    return "⚡ **EV Economics (India 2026):**\n\n• Cost/km: EV ₹1–1.5 vs Petrol ₹6–8\n• Tata Nexon EV: ₹450 full charge = 312 km range\n• Home charging (domestic tariff): ₹4–6/unit\n• DC fast charger (public): ₹14–18/unit\n• Annual savings vs petrol: ₹40,000–70,000\n• FAME-II subsidy reduces purchase cost\n• Toll exemption: Maharashtra, Rajasthan, Gujarat\n• Depreciation lower than petrol cars in resale market";
+  if (/cng|auto|rickshaw/i.test(lo))
+    return "🛺 **CNG Vehicle Economics:**\n\n• CNG auto: ~28 km/kg, cheapest: Mumbai ₹66/kg\n• Delhi CNG: ₹76.59/kg — cost/km ≈ ₹2.7\n• Petrol equivalent: ₹6–8/km (CNG is 60% cheaper)\n• Conversion kit cost: ₹35,000–45,000\n• Payback period: 12–18 months for avg usage\n• Delhi CNGs exempt from odd-even rules\n• CNG autos have lower maintenance costs vs diesel";
+  if (/route|highway|nh|road|path/i.test(lo))
+    return "🗺️ **Popular Highway Routes:**\n\n• Delhi–Jaipur NH48: 281 km · 3.5h · ₹2,300 sedan\n• Delhi–Agra NH19: 206 km · 2.5h · ₹1,660 sedan\n• Mumbai–Pune Expressway: 148 km · 1.5h · ₹1,290 sedan\n• Bangalore–Hyderabad NH44: 569 km · 7.5h\n• Chennai–Coimbatore NH44: 484 km · 6h\n• Delhi–Mumbai NH48: 1,388 km · 18h · 22 plazas\n\nTip: Depart 5–6 AM to avoid city congestion and save 45–60 min.";
+  return "🤖 **I can help with:**\n\n• City-wise live fuel price comparison\n• Toll costs on any Indian NH route\n• Mileage improvement tips by vehicle type\n• EV vs petrol/diesel economics\n• FASTag rules & toll penalty guide\n• CNG conversion economics\n• Best driving speeds for fuel efficiency\n• Highway route comparisons\n\nAsk me anything specific — I give numbers, not vague advice. 🛣️⛽";
+};
+
+const chatService = async (msgs) => {
+  await new Promise(r=>setTimeout(r,700+Math.random()*500));
+  return AI_FN(msgs[msgs.length-1]?.content||"");
+};
+
+/* ═══════════════════════════════════════════════════════════
+   LEAFLET MAP MANAGER
+═══════════════════════════════════════════════════════════ */
+function useMap(divRef) {
+  const mapRef=useRef(null);
+  const layerRef=useRef({poly:null,mA:null,mB:null});
+
+  const init=useCallback(()=>{
+    if (!divRef.current||mapRef.current||!window.L) return;
+    const L=window.L;
+    const map=L.map(divRef.current,{center:[22.5,80.5],zoom:5,zoomControl:false,attributionControl:false});
+    L.control.zoom({position:"bottomright"}).addTo(map);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
+      maxZoom:19,subdomains:"abcd",
+    }).addTo(map);
+    mapRef.current=map;
+  },[divRef]);
+
+  const draw=useCallback((result)=>{
+    if (!mapRef.current||!window.L) return;
+    const L=window.L;
+    const lr=layerRef.current;
+    [lr.poly,lr.mA,lr.mB].forEach(l=>{if(l) l.remove();});
+
+    const pts=result.waypoints.map(p=>[p.lat,p.lng]);
+    lr.poly=L.polyline(pts,{color:"#f59e0b",weight:5,opacity:.92,lineCap:"round",lineJoin:"round"}).addTo(mapRef.current);
+
+    const icon=(em,bg)=>L.divIcon({
+      className:"",
+      html:`<div style="width:36px;height:36px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 0 0 3px ${bg}44,0 4px 20px #0009;border:2px solid rgba(255,255,255,.15)">${em}</div>`,
+      iconSize:[36,36],iconAnchor:[18,18],
+    });
+    lr.mA=L.marker([result.fromCoords.lat,result.fromCoords.lng],{icon:icon("📍","#10b981")})
+      .bindPopup(`<b style="color:#10b981;font-family:monospace">▲ ${result.from}</b>`)
+      .addTo(mapRef.current);
+    lr.mB=L.marker([result.toCoords.lat,result.toCoords.lng],{icon:icon("🏁","#f43f5e")})
+      .bindPopup(`<b style="color:#f43f5e;font-family:monospace">■ ${result.to}</b>`)
+      .addTo(mapRef.current);
+
+    mapRef.current.fitBounds(lr.poly.getBounds(),{padding:[52,52],maxZoom:9});
+  },[]);
+
+  const reset=useCallback(()=>{
+    const lr=layerRef.current;
+    [lr.poly,lr.mA,lr.mB].forEach(l=>{if(l) l.remove();});
+    if (mapRef.current) mapRef.current.setView([22.5,80.5],5);
+  },[]);
+
+  return {init,draw,reset};
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CSS
+═══════════════════════════════════════════════════════════ */
+const CSS=`
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#060b14;--l1:#0a1120;--l2:#0e1728;--l3:#131e35;--l4:#192640;
+  --bdr:#1d2d45;--bdr2:#263a58;
+  --amber:#f59e0b;--amberL:#fcd34d;--amberD:#d97706;
+  --ag:rgba(245,158,11,.1);
+  --teal:#14b8a6;--green:#10b981;--red:#f43f5e;--blue:#3b82f6;
+  --violet:#7c3aed;--cyan:#22d3ee;
+  --txt:#e2e8f7;--muted:#526a8a;--dim:#2a3c58;--faint:#162035;
+  --fn:'DM Sans',sans-serif;--mono:'JetBrains Mono',monospace;
+  --rad:12px;--rad-sm:8px;--rad-lg:18px;
+}
+html,body{background:var(--bg);color:var(--txt);font-family:var(--fn);min-height:100vh;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#f59e0b30;border-radius:99px}
+
+/* header */
+.hdr{background:rgba(6,11,20,.94);border-bottom:1px solid var(--bdr);position:sticky;top:0;z-index:400;backdrop-filter:blur(18px)}
+.hdr-inner{max-width:1380px;margin:0 auto;padding:0 22px;height:58px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-gem{width:38px;height:38px;background:linear-gradient(135deg,#f59e0b,#ea580c);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;box-shadow:0 0 20px #f59e0b28}
+.logo-name{font-family:var(--mono);font-size:16px;font-weight:700;letter-spacing:1.5px;color:var(--amber)}
+.logo-sub{font-size:7.5px;letter-spacing:3px;color:var(--muted);margin-top:-1px;text-transform:uppercase}
+.hdr-pills{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pill{background:var(--l2);border:1px solid var(--bdr);border-radius:20px;padding:5px 12px;font-size:11px;font-family:var(--mono);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+
+/* nav */
+.nav{max-width:1380px;margin:0 auto;padding:0 22px;display:flex;gap:0;border-bottom:1px solid var(--bdr);overflow-x:auto}
+.ntab{background:none;border:none;cursor:pointer;color:var(--muted);font-family:var(--fn);font-weight:600;font-size:13px;padding:12px 18px;border-bottom:2px solid transparent;transition:all .18s;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.ntab:hover{color:var(--txt)}
+.ntab.on{color:var(--amber);border-bottom-color:var(--amber)}
+.nbadge{background:var(--ag);border:1px solid #f59e0b28;color:var(--amber);border-radius:10px;padding:1px 7px;font-size:10px;font-family:var(--mono)}
+
+/* main */
+.wrap{max-width:1380px;margin:0 auto;padding:24px 22px}
+
+/* cards */
+.card{background:var(--l1);border:1px solid var(--bdr);border-radius:var(--rad);padding:20px;transition:border-color .2s}
+.card-a{border-color:#f59e0b30;box-shadow:0 0 0 1px #f59e0b12,0 8px 32px #f59e0b08}
+.ct{font-size:9.5px;font-weight:700;letter-spacing:1.3px;color:var(--muted);text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:7px}
+.ct-bar{width:3px;height:13px;border-radius:2px;flex-shrink:0}
+
+/* inputs */
+.fld{margin-bottom:13px}
+.lbl{display:block;font-size:9.5px;font-weight:700;letter-spacing:.8px;color:var(--muted);margin-bottom:5px;text-transform:uppercase}
+.inp{background:var(--bg);border:1px solid var(--bdr);border-radius:var(--rad-sm);color:var(--txt);padding:10px 13px;font-family:var(--fn);font-size:13px;width:100%;outline:none;transition:border-color .2s;-webkit-appearance:none;appearance:none}
+.inp:focus{border-color:#f59e0b50}
+.inp::placeholder{color:var(--dim)}
+.inp:disabled{opacity:.28;cursor:not-allowed}
+.inp-m{font-family:var(--mono);font-size:12px}
+select.inp{cursor:pointer;padding-right:28px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='%23526a8a' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:12px}
+
+/* buttons */
+.btn{background:linear-gradient(135deg,#f59e0b,#ea580c);border:none;border-radius:var(--rad-sm);color:#05080d;cursor:pointer;font-family:var(--fn);font-weight:700;font-size:13px;letter-spacing:.3px;padding:11px 22px;transition:all .15s;display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.btn:hover:not(:disabled){opacity:.85;transform:translateY(-1px);box-shadow:0 6px 22px #f59e0b26}
+.btn:active:not(:disabled){transform:none}
+.btn:disabled{opacity:.22;cursor:not-allowed}
+.btn-w{width:100%}
+.btn-o{background:transparent;border:1px solid var(--bdr2);border-radius:var(--rad-sm);color:var(--muted);cursor:pointer;font-family:var(--fn);font-weight:600;font-size:13px;padding:10px 18px;transition:all .15s;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn-o:hover{background:var(--l3);color:var(--txt);border-color:#f59e0b40}
+.btn-g{background:var(--l2);border:1px solid var(--bdr);border-radius:var(--rad-sm);color:var(--muted);cursor:pointer;font-family:var(--fn);font-weight:500;font-size:12px;padding:7px 13px;transition:all .13s;display:inline-flex;align-items:center;gap:6px;text-align:left}
+.btn-g:hover{background:var(--l3);color:var(--txt);border-color:var(--bdr2)}
+
+/* stat row */
+.sr{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--faint)}
+.sr:last-child{border-bottom:none}
+.sr-l{color:var(--muted);font-size:12px}
+.sr-v{font-family:var(--mono);font-size:13px;font-weight:600}
+
+/* KPI */
+.kpi{position:relative;overflow:hidden}
+.kpi-ghost{position:absolute;top:-5px;right:-3px;font-size:50px;opacity:.055;pointer-events:none;user-select:none;filter:blur(1px)}
+.kpi-val{font-family:var(--mono);font-size:23px;font-weight:700;line-height:1;margin-top:6px}
+.kpi-lbl{font-size:11px;color:var(--muted);margin-top:5px}
+
+/* tags */
+.tag{padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+.tg-a{background:#f59e0b12;color:var(--amber);border:1px solid #f59e0b22}
+.tg-g{background:#10b98112;color:var(--green);border:1px solid #10b98122}
+.tg-r{background:#f43f5e12;color:var(--red);border:1px solid #f43f5e22}
+.tg-b{background:#3b82f612;color:var(--blue);border:1px solid #3b82f622}
+.tg-t{background:#14b8a612;color:var(--teal);border:1px solid #14b8a622}
+.tg-c{background:#22d3ee12;color:var(--cyan);border:1px solid #22d3ee22}
+
+/* pbar */
+.pb{background:var(--faint);border-radius:99px;height:6px;overflow:hidden;margin-top:7px}
+.pb-f{height:100%;border-radius:99px;transition:width .65s ease}
+
+/* steps */
+.steps{display:flex;align-items:flex-start;gap:0;margin-bottom:22px}
+.s-wrap{display:flex;flex-direction:column;align-items:center;gap:4px}
+.s-c{width:29px;height:29px;border-radius:50%;border:2px solid var(--bdr2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-family:var(--mono);color:var(--muted);transition:all .22s}
+.s-c.done{background:var(--green);border-color:var(--green);color:#030f08}
+.s-c.active{background:var(--amber);border-color:var(--amber);color:#060400;box-shadow:0 0 18px #f59e0b40}
+.s-l{font-size:9px;letter-spacing:.5px;color:var(--muted);text-transform:uppercase;white-space:nowrap}
+.s-l.active{color:var(--amber)}
+.s-line{flex:1;height:2px;background:var(--bdr);margin-top:13px;transition:background .25s}
+.s-line.done{background:var(--green)}
+
+/* map */
+.mapwrap{position:relative;overflow:hidden;border-radius:var(--rad);background:var(--l1);border:1px solid var(--bdr)}
+.mchip{background:rgba(6,11,20,.9);border:1px solid var(--bdr2);border-radius:var(--rad-sm);padding:7px 12px;font-family:var(--mono);font-size:11px;backdrop-filter:blur(10px);display:flex;align-items:center;gap:7px}
+.moverlay{position:absolute;z-index:900;pointer-events:none}
+
+/* route analysis metrics */
+.ram{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);border:1px solid var(--bdr);border-radius:var(--rad-sm);padding:14px 8px;text-align:center}
+.ram-v{font-family:var(--mono);font-size:17px;font-weight:700;line-height:1}
+.ram-l{font-size:10px;color:var(--muted);margin-top:4px;letter-spacing:.3px}
+
+/* grids */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:11px}
+
+/* table */
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;padding:7px 13px;color:var(--muted);font-size:9px;letter-spacing:.9px;font-weight:700;border-bottom:1px solid var(--bdr);text-transform:uppercase}
+.tbl td{padding:10px 13px;border-bottom:1px solid var(--faint)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tbody tr:hover td{background:var(--l2)50}
+
+/* empty */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:42px 24px}
+
+/* chat */
+.bu{background:var(--ag);border:1px solid #f59e0b25;border-radius:16px 16px 4px 16px;padding:10px 14px;max-width:78%;align-self:flex-end;font-size:13px;line-height:1.7}
+.ba{background:var(--l1);border:1px solid var(--bdr);border-radius:16px 16px 16px 4px;padding:10px 14px;max-width:86%;align-self:flex-start;font-size:13px;line-height:1.8;white-space:pre-wrap}
+
+/* section head */
+.sh h2{font-size:24px;font-weight:700;letter-spacing:.2px;margin-bottom:4px}
+.sh p{color:var(--muted);font-size:12px}
+.sh{margin-bottom:22px}
+
+/* animations */
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.fin{animation:fadeUp .24s ease-out}
+@keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin .65s linear infinite;display:inline-block}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}.pul{animation:pulse 1.4s ease-in-out infinite}
+@keyframes glow{0%,100%{box-shadow:0 0 0 1px #f59e0b18,0 8px 32px #f59e0b08}50%{box-shadow:0 0 0 1px #f59e0b30,0 8px 40px #f59e0b15}}
+.glow{animation:glow 2.5s ease-in-out infinite}
+
+/* leaflet */
+.leaflet-container{background:#05080e!important;font-family:var(--mono)!important}
+.leaflet-control-zoom a{background:var(--l2)!important;color:var(--muted)!important;border-color:var(--bdr)!important;font-size:16px!important}
+.leaflet-control-zoom a:hover{background:var(--l3)!important;color:var(--txt)!important}
+.leaflet-popup-content-wrapper{background:var(--l1)!important;border:1px solid var(--bdr)!important;border-radius:10px!important;box-shadow:0 8px 32px #0009!important;color:var(--txt)!important}
+.leaflet-popup-tip{background:var(--l1)!important}
+.leaflet-popup-content{margin:10px 14px!important;font-family:var(--mono)!important;font-size:12px!important}
+.leaflet-popup-close-button{color:var(--muted)!important}
+
+/* recharts */
+.recharts-cartesian-grid-horizontal line{stroke:var(--faint)!important}
+
+/* responsive */
+@media(max-width:1100px){.rp{grid-template-columns:340px 1fr!important}}
+@media(max-width:920px){.rp,.chat-g,.g4{grid-template-columns:1fr!important}.g3{grid-template-columns:1fr 1fr!important}}
+@media(max-width:620px){.g2,.g3{grid-template-columns:1fr!important}.wrap{padding:14px 14px}}
+`;
+
+/* ═══════════════════════════════════════════════════════════
+   MINI COMPONENTS
+═══════════════════════════════════════════════════════════ */
+const CT = ({ch,color="amber"}) => {
+  const colors={amber:"#f59e0b",teal:"#14b8a6",green:"#10b981",red:"#f43f5e",blue:"#3b82f6",violet:"#7c3aed",cyan:"#22d3ee"};
+  return <div className="ct"><div className="ct-bar" style={{background:colors[color]||colors.amber}}/>{ch}</div>;
+};
+const SR = ({label,value,color,sub}) => (
+  <div className="sr">
+    <div><span className="sr-l">{label}</span>{sub&&<div style={{fontSize:10,color:"var(--dim)",marginTop:1}}>{sub}</div>}</div>
+    <span className="sr-v" style={{color:color||"var(--txt)"}}>{value}</span>
+  </div>
+);
+const SH = ({title,sub}) => <div className="sh"><h2>{title}</h2>{sub&&<p>{sub}</p>}</div>;
+const Pbar = ({pct,color}) => (
+  <div className="pb"><div className="pb-f" style={{width:`${Math.min(pct||0,100)}%`,background:color||"linear-gradient(90deg,#f43f5e,#f59e0b,#10b981)"}}/></div>
+);
+const Steps = ({cur,labels}) => (
+  <div className="steps">
+    {labels.map((l,i)=>(
+      <>{i>0&&<div key={`ln${i}`} className={`s-line${i<=cur?" done":""}`}/>}<div key={`s${i}`} className="s-wrap"><div className={`s-c${i<cur?" done":i===cur?" active":""}`}>{i<cur?"✓":i+1}</div><div className={`s-l${i===cur?" active":""}`}>{l}</div></div></>
+    ))}
+  </div>
+);
+const CTip = ({active,payload,label}) => {
+  if (!active||!payload?.length) return null;
+  return (
+    <div style={{background:"var(--l1)",border:"1px solid var(--bdr)",borderRadius:10,padding:"9px 13px",fontFamily:"var(--mono)",fontSize:11}}>
+      <div style={{color:"var(--muted)",marginBottom:5,fontSize:10}}>{label}</div>
+      {payload.map((p,i)=><div key={i} style={{color:p.color,fontWeight:600,marginBottom:2}}>{p.name}: ₹{Number(p.value).toLocaleString("en-IN")}</div>)}
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   APP
+═══════════════════════════════════════════════════════════ */
+export default function App() {
+  const [tab,setTab]=useState("route");
+  const [vKey,setVKey]=useState("hatchback");
+  const [trips,setTrips]=useState([]);
+  const [fuelLog,setFuelLog]=useState([]);
+
+  /* Route planner */
+  const [step,setStep]=useState(0);
+  const [rFrom,setRFrom]=useState("");
+  const [rTo,setRTo]=useState("");
+  const [rFuelType,setRFuelType]=useState("petrol");
+  const [rRate,setRRate]=useState("");
+  const [rMileage,setRMileage]=useState(18);
+  const [rLoading,setRLoading]=useState(false);
+  const [rResult,setRResult]=useState(null);
+  const [rErr,setRErr]=useState("");
+
+  /* Fuel log */
+  const [fl,setFl]=useState({date:new Date().toISOString().slice(0,10),fuelType:"petrol",litres:"",priceL:"",city:"Delhi"});
+  const [flOk,setFlOk]=useState(false);
+
+  /* Chat */
+  const [msgs,setMsgs]=useState([{role:"assistant",content:"Namaste! 🙏 I'm your Fuel & Route AI.\n\nAsk me anything — fuel prices, toll rates, mileage tips, EV economics, Indian highway routes. I give numbers, not vague advice."}]);
+  const [chatIn,setChatIn]=useState("");
+  const [chatBusy,setChatBusy]=useState(false);
+  const chatEndRef=useRef(null);
+
+  /* Map */
+  const [leafReady,setLeafReady]=useState(!!window.L);
+  const mapDiv=useRef(null);
+  const {init:initMap,draw:drawRoute,reset:resetRoute}=useMap(mapDiv);
+
+  /* Load Leaflet */
+  useEffect(()=>{
+    if (window.L){setLeafReady(true);return;}
+    const css=document.createElement("link");
+    css.rel="stylesheet";
+    css.href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+    document.head.appendChild(css);
+    const js=document.createElement("script");
+    js.src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    js.onload=()=>setLeafReady(true);
+    document.head.appendChild(js);
+  },[]);
+
+  useEffect(()=>{if(tab==="route"&&leafReady) setTimeout(initMap,80);},[tab,leafReady,initMap]);
+  useEffect(()=>{if(tab==="route"&&rResult&&leafReady) setTimeout(()=>drawRoute(rResult),160);},[tab,rResult,leafReady,drawRoute]);
+  useEffect(()=>{chatEndRef.current?.scrollIntoView({behavior:"smooth"});},[msgs]);
+
+  /* sync vehicle defaults */
+  useEffect(()=>{
+    const v=VEHICLES[vKey];
+    setRMileage(v.mileage||15);
+    setRFuelType(v.fuelType||"petrol");
+  },[vKey]);
+
+  /* auto fuel price for log */
+  useEffect(()=>{
+    if (fl.city&&fl.fuelType!=="electric")
+      setFl(p=>({...p,priceL:getFuelPrice(fl.city,fl.fuelType).toString()}));
+  },[fl.city,fl.fuelType]);
+
+  /* stats */
+  const stats=useMemo(()=>{
+    const tf=trips.reduce((s,t)=>s+t.fuelCost,0);
+    const tt=trips.reduce((s,t)=>s+t.toll,0);
+    const td=trips.reduce((s,t)=>s+t.km,0);
+    const fls=fuelLog.reduce((s,e)=>s+e.total,0);
+    const flL=fuelLog.reduce((s,e)=>s+e.litres,0);
+    return{tf,tt,td,fls,flL,total:tf+tt+fls,avgP:flL?fls/flL:0};
+  },[trips,fuelLog]);
+
+  const monthly=useMemo(()=>{
+    const m={};
+    trips.forEach(t=>{const k=t.date.slice(0,7);if(!m[k])m[k]={month:k.slice(5),fuel:0,toll:0};m[k].fuel+=t.fuelCost;m[k].toll+=t.toll;});
+    fuelLog.forEach(e=>{const k=e.date.slice(0,7);if(!m[k])m[k]={month:k.slice(5),fuel:0,toll:0};m[k].fuel+=e.total;});
+    return Object.values(m).sort((a,b)=>a.month.localeCompare(b.month)).slice(-7);
+  },[trips,fuelLog]);
+
+  /* handlers */
+  const calcRoute=async()=>{
+    if (!rFrom.trim()||!rTo.trim()){setRErr("Enter both origin and destination.");return;}
+    setRErr("");setRLoading(true);setRResult(null);resetRoute();
+    try{
+      const rate=+rRate||getFuelPrice(rFrom,rFuelType);
+      const res=await routeService(rFrom,rTo,vKey,rate,rMileage);
+      setRResult(res);drawRoute(res);
+    }catch(e){setRErr(e.message);}
+    setRLoading(false);
+  };
+
+  const saveTrip=()=>{
+    if (!rResult) return;
+    setTrips(p=>[{id:Date.now(),date:new Date().toISOString().slice(0,10),from:rResult.from,to:rResult.to,km:rResult.km,vehicle:VEHICLES[vKey]?.label,fuelCost:rResult.fuelCost,toll:rResult.toll,total:rResult.total,mileage:rResult.mileage},...p]);
+    setTab("dashboard");
+  };
+
+  const addFuelEntry=()=>{
+    const l=+fl.litres,p=+fl.priceL;
+    if (!l||!p) return;
+    setFuelLog(prev=>[{id:Date.now(),date:fl.date,fuelType:fl.fuelType,litres:l,priceL:p,total:Math.round(l*p),city:fl.city},...prev]);
+    setFl(x=>({...x,litres:""}));
+    setFlOk(true);setTimeout(()=>setFlOk(false),2000);
+  };
+
+  const sendChat=async(text)=>{
+    if (!text.trim()||chatBusy) return;
+    const um={role:"user",content:text};
+    setMsgs(p=>[...p,um]);setChatIn("");setChatBusy(true);
+    const reply=await chatService([...msgs,um]);
+    setMsgs(p=>[...p,{role:"assistant",content:reply}]);
+    setChatBusy(false);
+  };
+
+  const PC=["#f59e0b","#f43f5e","#14b8a6","#7c3aed","#3b82f6"];
+
+  /* ══════════════════════════════════════════════════════════
+     RENDER
+  ══════════════════════════════════════════════════════════ */
+  return (
+    <div style={{background:"var(--bg)",minHeight:"100vh"}}>
+      <style>{CSS}</style>
+
+      {/* HEADER */}
+      <header className="hdr">
+        <div className="hdr-inner">
+          <div className="logo">
+            <div className="logo-gem">⛽</div>
+            <div>
+              <div className="logo-name">FUELTRACK</div>
+              <div className="logo-sub">India Route Optimizer</div>
+            </div>
+          </div>
+          <div className="hdr-pills">
+            <div className="pill">
+              <div className="dot" style={{background:"var(--green)"}}/>
+              <span style={{fontFamily:"var(--mono)",color:"var(--green)",fontSize:10}}>{VEHICLES[vKey]?.icon} {VEHICLES[vKey]?.label}</span>
+            </div>
+            <div className="pill">
+              <span style={{color:"var(--muted)",fontSize:10}}>{trips.length} trips ·</span>
+              <span style={{color:"var(--amber)",fontWeight:700}}>₹{stats.total.toLocaleString("en-IN")}</span>
+            </div>
+            <div className="pill">
+              <div className="dot" style={{background:leafReady?"var(--teal)":"var(--red)"}}/>
+              <span style={{color:leafReady?"var(--teal)":"var(--red)",fontSize:10}}>{leafReady?"Map Live":"Loading"}</span>
+            </div>
+          </div>
+        </div>
+        <nav className="nav">
+          {[
+            ["route","🗺️","Route Planner",0],
+            ["fuellogs","⛽","Fuel Logs",fuelLog.length],
+            ["dashboard","📊","Dashboard",0],
+            ["analytics","📈","Analytics",0],
+            ["ai","🤖","AI Chat",0],
+          ].map(([id,ic,lb,ct])=>(
+            <button key={id} className={`ntab${tab===id?" on":""}`} onClick={()=>setTab(id)}>
+              <span>{ic}</span><span>{lb}</span>
+              {ct>0&&<span className="nbadge">{ct}</span>}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <div className="wrap">
+
+        {/* ══════════════════ ROUTE PLANNER ══════════════════ */}
+        {tab==="route"&&(
+          <div className="fin">
+            <SH title="Route Planner" sub="Step-by-step trip configuration · Live map routing · Full cost breakdown"/>
+            <div className="rp" style={{display:"grid",gridTemplateColumns:"358px 1fr",gap:18,alignItems:"start"}}>
+
+              {/* LEFT */}
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+                {/* Config wizard */}
+                <div className="card">
+                  <CT ch="⚙️ Trip Configuration"/>
+                  <Steps cur={step} labels={["Locations","Fuel","Vehicle"]}/>
+
+                  {/* STEP 0 */}
+                  {step===0&&(
+                    <div className="fin">
+                      <div className="fld">
+                        <label className="lbl">📍 Origin City</label>
+                        <input className="inp" placeholder="e.g. Delhi, Mumbai, Chandigarh…" value={rFrom}
+                          onChange={e=>{setRFrom(e.target.value);setRResult(null);resetRoute();}}/>
+                        {rFrom&&(()=>{const fc=findCoords(rFrom);return fc.found
+                          ?<div style={{fontSize:10,color:"var(--green)",marginTop:4,fontFamily:"var(--mono)"}}>✓ Located · Petrol ₹{getFuelPrice(rFrom,"petrol")}/L</div>
+                          :<div style={{fontSize:10,color:"var(--amber)",marginTop:4}}>⚠ Type a recognised Indian city</div>;})()}
+                      </div>
+                      <div className="fld">
+                        <label className="lbl">🏁 Destination City</label>
+                        <input className="inp" placeholder="e.g. Jaipur, Pune, Hyderabad…" value={rTo}
+                          onChange={e=>{setRTo(e.target.value);setRResult(null);resetRoute();}}/>
+                        {rTo&&(()=>{const tc=findCoords(rTo);return tc.found
+                          ?<div style={{fontSize:10,color:"var(--green)",marginTop:4,fontFamily:"var(--mono)"}}>✓ Located · Petrol ₹{getFuelPrice(rTo,"petrol")}/L</div>
+                          :<div style={{fontSize:10,color:"var(--amber)",marginTop:4}}>⚠ Type a recognised Indian city</div>;})()}
+                      </div>
+                      <div style={{marginBottom:13}}>
+                        <div style={{fontSize:9,color:"var(--muted)",marginBottom:7,letterSpacing:.7,textTransform:"uppercase"}}>Popular Routes</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                          {[["Delhi","Jaipur"],["Mumbai","Pune"],["Bangalore","Hyderabad"],["Delhi","Agra"],["Chennai","Coimbatore"],["Lucknow","Varanasi"]].map(([f,t])=>(
+                            <button key={f+t} className="btn-g" onClick={()=>{setRFrom(f);setRTo(t);setRResult(null);resetRoute();}}>{f}→{t}</button>
+                          ))}
+                        </div>
+                      </div>
+                      {rErr&&<div style={{color:"var(--red)",fontSize:12,marginBottom:10,background:"#f43f5e0a",border:"1px solid #f43f5e20",borderRadius:8,padding:"8px 12px"}}>⚠️ {rErr}</div>}
+                      <button className="btn btn-w" onClick={()=>{if(!rFrom.trim()||!rTo.trim())setRErr("Enter both cities.");else{setRErr("");setStep(1);}}}>
+                        Next: Fuel Settings →
+                      </button>
+                    </div>
+                  )}
+
+                  {/* STEP 1 */}
+                  {step===1&&(
+                    <div className="fin">
+                      <div className="fld">
+                        <label className="lbl">⛽ Fuel Type</label>
+                        <select className="inp" value={rFuelType} onChange={e=>setRFuelType(e.target.value)}>
+                          {["petrol","diesel","cng","electric"].map(f=><option key={f} value={f}>{f.toUpperCase()}</option>)}
+                        </select>
+                      </div>
+                      {rFuelType!=="electric"?(
+                        <div className="fld">
+                          <label className="lbl">💰 Fuel Rate (₹/L) — leave blank for auto</label>
+                          <input className="inp inp-m" type="number" placeholder={`${getFuelPrice(rFrom,rFuelType)} (market rate)`}
+                            value={rRate} onChange={e=>setRRate(e.target.value)}/>
+                          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--muted)",marginTop:5}}>
+                            <span>Market rate in {rFrom||"origin"}</span>
+                            <b style={{color:"var(--amber)",fontFamily:"var(--mono)"}}>₹{getFuelPrice(rFrom||"delhi",rFuelType)}/L</b>
+                          </div>
+                        </div>
+                      ):(
+                        <div style={{background:"#22d3ee0a",border:"1px solid #22d3ee1a",borderRadius:8,padding:"10px 13px",fontSize:12,color:"var(--cyan)",marginBottom:13}}>
+                          ⚡ EV cost calculated at ~₹1.1/km average charging rate
+                        </div>
+                      )}
+                      <div style={{display:"flex",gap:9}}>
+                        <button className="btn-o" style={{flex:1}} onClick={()=>setStep(0)}>← Back</button>
+                        <button className="btn" style={{flex:2}} onClick={()=>setStep(2)}>Next: Vehicle →</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 2 */}
+                  {step===2&&(
+                    <div className="fin">
+                      <div className="fld">
+                        <label className="lbl">🚗 Vehicle Type</label>
+                        <select className="inp" value={vKey} onChange={e=>setVKey(e.target.value)}>
+                          {Object.entries(VEHICLES).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}{v.fuelType!=="electric"?` · ${v.mileage}km/L`:""}</option>)}
+                        </select>
+                      </div>
+                      {VEHICLES[vKey]?.fuelType!=="electric"&&(
+                        <div className="fld">
+                          <label className="lbl">⚡ Your Actual Mileage (km/L)</label>
+                          <input className="inp inp-m" type="number" min="1" max="100" value={rMileage}
+                            onChange={e=>setRMileage(+e.target.value||rMileage)} style={{color:"var(--green)"}}/>
+                          <div style={{fontSize:10,color:"var(--muted)",marginTop:4}}>Manufacturer spec: {VEHICLES[vKey]?.mileage} km/L</div>
+                        </div>
+                      )}
+                      {rErr&&<div style={{color:"var(--red)",fontSize:12,marginBottom:10,background:"#f43f5e0a",border:"1px solid #f43f5e20",borderRadius:8,padding:"8px 12px"}}>⚠️ {rErr}</div>}
+                      <div style={{display:"flex",gap:9}}>
+                        <button className="btn-o" style={{flex:1}} onClick={()=>setStep(1)}>← Back</button>
+                        <button className="btn" style={{flex:2}} disabled={rLoading} onClick={calcRoute}>
+                          {rLoading?<><span className="spin">↻</span> Calculating…</>:"🔍 Calculate Route"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ROUTE ANALYSIS */}
+                {rResult&&(
+                  <div className="card card-a glow fin">
+                    <CT ch="📊 Route Analysis" color="amber"/>
+
+                    {/* 4-metric grid */}
+                    <div className="g2" style={{marginBottom:13}}>
+                      {[
+                        {ic:"📍",v:`${rResult.km} km`,l:"Distance",c:"var(--blue)"},
+                        {ic:"⏱️",v:rResult.duration,l:"Duration",c:"var(--violet)"},
+                        {ic:"💰",v:`₹${rResult.fuelCost.toLocaleString("en-IN")}`,l:rResult.fuelType==="electric"?"Elec. Cost":"Fuel Cost",c:"var(--green)"},
+                        {ic:"🛣️",v:`₹${rResult.toll.toLocaleString("en-IN")}`,l:"Toll (est.)",c:"var(--red)"},
+                      ].map(m=>(
+                        <div key={m.l} className="ram">
+                          <span style={{fontSize:18,marginBottom:3}}>{m.ic}</span>
+                          <div className="ram-v" style={{color:m.c}}>{m.v}</div>
+                          <div className="ram-l">{m.l}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Total highlight */}
+                    <div style={{background:"var(--ag)",border:"1px solid #f59e0b28",borderRadius:10,padding:"11px 15px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
+                      <span style={{fontSize:12,color:"var(--muted)"}}>💵 Total Trip Cost</span>
+                      <span style={{fontFamily:"var(--mono)",fontSize:21,fontWeight:700,color:"var(--amber)"}}>₹{rResult.total.toLocaleString("en-IN")}</span>
+                    </div>
+
+                    {/* Detail rows */}
+                    {rResult.fuelType!=="electric"&&<SR label="Fuel Used" value={`${rResult.fuelUsed} L`} color="var(--muted)"/>}
+                    <SR label="Fuel Rate" value={rResult.fuelType==="electric"?"~₹1.1/km":`₹${rResult.rate}/L`} color="var(--muted)"/>
+                    <SR label="Cost per km" value={`₹${rResult.cpkm}`} color="var(--teal)"/>
+
+                    {/* Comparison bar */}
+                    <div style={{background:"var(--bg)",borderRadius:10,padding:13,border:"1px solid var(--bdr)",marginTop:13,marginBottom:13}}>
+                      <div style={{fontSize:9,color:"var(--muted)",fontWeight:700,letterSpacing:1.1,marginBottom:11,textTransform:"uppercase"}}>⚖️ Route Comparison</div>
+                      {[
+                        {lb:"🛣️ Expressway (with toll)",v:rResult.total,c:"var(--amber)"},
+                        {lb:"🌿 State Highway (no toll)",v:rResult.tollFreeTotal,c:"var(--blue)"},
+                      ].map((row,i)=>{
+                        const mx=Math.max(rResult.total,rResult.tollFreeTotal);
+                        return(
+                          <div key={i} style={{marginBottom:i===0?11:0}}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:12}}>
+                              <span style={{color:"var(--muted)"}}>{row.lb}</span>
+                              <b style={{fontFamily:"var(--mono)",color:row.c}}>₹{row.v.toLocaleString("en-IN")}</b>
+                            </div>
+                            <div style={{background:"var(--faint)",borderRadius:99,height:6,overflow:"hidden"}}>
+                              <div style={{width:`${Math.round((row.v/mx)*100)}%`,height:"100%",borderRadius:99,background:row.c,opacity:.8,transition:"width .6s ease"}}/>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div style={{marginTop:9,fontSize:12,padding:"7px 10px",borderRadius:8,
+                        color:rResult.saving>0?"var(--green)":"var(--amber)",
+                        background:rResult.saving>0?"#10b98108":"#f59e0b08",
+                        border:`1px solid ${rResult.saving>0?"#10b98118":"#f59e0b18"}`}}>
+                        {rResult.saving>0
+                          ?`💡 Avoid toll to save ₹${Math.abs(rResult.saving).toLocaleString("en-IN")} (route ~7% longer)`
+                          :`✅ Expressway saves ₹${Math.abs(rResult.saving).toLocaleString("en-IN")} vs state roads`}
+                      </div>
+                    </div>
+
+                    {/* Efficiency */}
+                    {(()=>{
+                      const e=rResult.eff;
+                      return(
+                        <div style={{marginBottom:13}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                            <span style={{fontSize:11,color:"var(--muted)"}}>Efficiency Rating</span>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <span style={{fontFamily:"var(--mono)",fontSize:18,fontWeight:700,color:e.color}}>{e.grade}</span>
+                              <span className="tag" style={{background:`${e.color}12`,color:e.color,border:`1px solid ${e.color}22`}}>{e.label}</span>
+                            </div>
+                          </div>
+                          <Pbar pct={e.pct} color={`linear-gradient(90deg,#f43f5e,#f59e0b,#10b981)`}/>
+                        </div>
+                      );
+                    })()}
+
+                    <div style={{display:"flex",gap:9}}>
+                      <button className="btn" style={{flex:3}} onClick={saveTrip}>💾 Save Trip</button>
+                      <button className="btn-o" style={{flex:2}} onClick={()=>{setStep(0);setRResult(null);resetRoute();setRErr("");}}>↺ New Route</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT — MAP */}
+              <div className="mapwrap" style={{height:"calc(100vh - 190px)",minHeight:580,position:"sticky",top:112}}>
+                {/* overlays */}
+                {rResult&&(
+                  <>
+                    <div className="moverlay" style={{top:12,left:12,display:"flex",flexDirection:"column",gap:7}}>
+                      <div className="mchip"><span style={{color:"var(--green)"}}>📍</span><span style={{color:"var(--txt)",fontWeight:600}}>{rResult.from}</span></div>
+                      <div className="mchip"><span style={{color:"var(--red)"}}>🏁</span><span style={{color:"var(--txt)",fontWeight:600}}>{rResult.to}</span></div>
+                    </div>
+                    <div className="moverlay" style={{top:12,right:12,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:7}}>
+                      <div className="mchip">
+                        <span style={{color:"var(--amber)",fontWeight:700}}>{rResult.km} km</span>
+                        <span style={{color:"var(--dim)"}}>·</span>
+                        <span style={{color:"var(--violet)"}}>{rResult.duration}</span>
+                      </div>
+                      <div className="mchip">
+                        <span style={{color:"var(--green)"}}>₹{rResult.fuelCost.toLocaleString("en-IN")}</span>
+                        <span style={{color:"var(--dim)"}}>fuel +</span>
+                        <span style={{color:"var(--red)"}}>₹{rResult.toll.toLocaleString("en-IN")}</span>
+                        <span style={{color:"var(--dim)"}}>toll</span>
+                      </div>
+                    </div>
+                    <div className="moverlay" style={{bottom:12,left:12}}>
+                      <div className="mchip" style={{gap:10}}>
+                        <span style={{display:"inline-flex",alignItems:"center",gap:5}}>
+                          <span style={{display:"inline-block",width:18,height:3,borderRadius:2,background:"var(--amber)"}}/>
+                          <span style={{color:"var(--muted)",fontSize:10}}>Toll Route</span>
+                        </span>
+                        <span className="tag tg-a">Live</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div ref={mapDiv} style={{width:"100%",height:"100%"}}/>
+                {!rResult&&(
+                  <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,pointerEvents:"none"}}>
+                    <div style={{fontSize:56,opacity:.1}}>🗺️</div>
+                    <div style={{fontSize:13,color:"var(--muted)",textAlign:"center"}}>
+                      {rLoading?<><span className="spin">↻</span> Plotting route on map…</>:"Configure your trip to see the live route"}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════ FUEL LOGS ══════════════════ */}
+        {tab==="fuellogs"&&(
+          <div className="fin">
+            <SH title="Fuel Logs" sub="Track every fill-up with real city-based pricing and monthly summaries"/>
+            <div className="g2" style={{marginBottom:18}}>
+              <div className="card">
+                <CT ch="➕ Add Fuel Entry" color="green"/>
+                <div className="fld"><label className="lbl">📅 Date</label><input className="inp" type="date" value={fl.date} onChange={e=>setFl(p=>({...p,date:e.target.value}))}/></div>
+                <div className="g2">
+                  <div className="fld">
+                    <label className="lbl">🏙️ City</label>
+                    <input className="inp" list="cl" placeholder="Delhi…" value={fl.city} onChange={e=>setFl(p=>({...p,city:e.target.value}))}/>
+                    <datalist id="cl">{Object.keys(FUEL_DB.petrol).filter(k=>k!=="default").map(c=><option key={c} value={c.charAt(0).toUpperCase()+c.slice(1)}/>)}</datalist>
+                  </div>
+                  <div className="fld">
+                    <label className="lbl">⛽ Fuel Type</label>
+                    <select className="inp" value={fl.fuelType} onChange={e=>setFl(p=>({...p,fuelType:e.target.value}))}>
+                      {["petrol","diesel","cng","electric"].map(f=><option key={f} value={f}>{f.toUpperCase()}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {fl.city&&fl.fuelType!=="electric"&&(
+                  <div style={{background:"var(--ag)",border:"1px solid #f59e0b20",borderRadius:8,padding:"7px 12px",marginBottom:12,display:"flex",justifyContent:"space-between",fontSize:12}}>
+                    <span style={{color:"var(--muted)"}}>Market rate — {fl.city}</span>
+                    <b style={{fontFamily:"var(--mono)",color:"var(--amber)"}}>₹{getFuelPrice(fl.city,fl.fuelType)}/L</b>
+                  </div>
+                )}
+                <div className="g2">
+                  <div className="fld"><label className="lbl">💧 Litres</label><input className="inp inp-m" type="number" placeholder="e.g. 35" value={fl.litres} onChange={e=>setFl(p=>({...p,litres:e.target.value}))}/></div>
+                  <div className="fld"><label className="lbl">💰 ₹ per Litre</label><input className="inp inp-m" type="number" placeholder="₹/L" value={fl.priceL} onChange={e=>setFl(p=>({...p,priceL:e.target.value}))}/></div>
+                </div>
+                {fl.litres&&fl.priceL&&(
+                  <div style={{background:"var(--l3)",borderRadius:10,padding:"11px 14px",marginBottom:13,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid var(--bdr2)"}}>
+                    <span style={{color:"var(--muted)",fontSize:12}}>Total Amount</span>
+                    <span style={{fontFamily:"var(--mono)",fontSize:20,fontWeight:700,color:"var(--amber)"}}>₹{Math.round(+fl.litres*(+fl.priceL)).toLocaleString("en-IN")}</span>
+                  </div>
+                )}
+                <button className="btn btn-w" disabled={!fl.litres||!fl.priceL} onClick={addFuelEntry}
+                  style={flOk?{background:"linear-gradient(135deg,#10b981,#059669)"}:{}}>
+                  {flOk?"✅ Entry Saved!":"➕ Add Entry"}
+                </button>
+              </div>
+
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <div className="card">
+                  <CT ch="📊 Fuel Summary" color="teal"/>
+                  <SR label="Total Entries"    value={fuelLog.length}                                           color="var(--blue)"/>
+                  <SR label="Total Litres"     value={`${stats.flL.toFixed(1)} L`}                             color="var(--muted)"/>
+                  <SR label="Total Spend"      value={stats.fls?`₹${stats.fls.toLocaleString("en-IN")}`:"₹0"} color="var(--amber)"/>
+                  <SR label="Avg Price / Litre" value={stats.avgP?`₹${stats.avgP.toFixed(2)}/L`:"—"}          color="var(--green)"/>
+                </div>
+                <div className="card">
+                  <CT ch="🏙️ Live City Prices (Apr 2026)" color="blue"/>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:0}}>
+                    {[["Srinagar",89.76],["Jammu",91.68],["Chandigarh",94.24],["Delhi",94.72],["Ahmedabad",96.63],["Lucknow",94.65],["Jaipur",104.88],["Kolkata",104.95],["Bangalore",102.86],["Chennai",102.63],["Mumbai",106.31],["Nagpur",110.89]].map(([c,p])=>(
+                      <div key={c} style={{display:"flex",justifyContent:"space-between",padding:"6px 0 6px 0",borderBottom:"1px solid var(--faint)",paddingRight:6}}>
+                        <span style={{fontSize:12}}>{c}</span>
+                        <span style={{fontFamily:"var(--mono)",fontSize:12,color:p<96?"var(--green)":p<105?"var(--amber)":"var(--red)"}}>₹{p}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <CT ch="📋 Fuel Entry Log" color="blue"/>
+              {fuelLog.length===0?(
+                <div className="empty">
+                  <div style={{fontSize:38,opacity:.12}}>⛽</div>
+                  <div style={{fontSize:13,color:"var(--muted)"}}>No entries yet. Add your first fuel log above.</div>
+                </div>
+              ):(
+                <div style={{overflowX:"auto"}}>
+                  <table className="tbl">
+                    <thead><tr>{["Date","City","Type","Litres","₹/L","Total"].map(h=><th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {fuelLog.map(e=>(
+                        <tr key={e.id}>
+                          <td style={{fontFamily:"var(--mono)",color:"var(--muted)",fontSize:11}}>{e.date}</td>
+                          <td style={{fontWeight:500}}>{e.city}</td>
+                          <td><span className={`tag ${e.fuelType==="petrol"?"tg-a":e.fuelType==="diesel"?"tg-b":e.fuelType==="cng"?"tg-t":"tg-c"}`}>{e.fuelType.toUpperCase()}</span></td>
+                          <td style={{fontFamily:"var(--mono)"}}>{e.litres} L</td>
+                          <td style={{fontFamily:"var(--mono)",color:"var(--muted)"}}>₹{e.priceL}</td>
+                          <td style={{fontFamily:"var(--mono)",color:"var(--amber)",fontWeight:700}}>₹{e.total.toLocaleString("en-IN")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════ DASHBOARD ══════════════════ */}
+        {tab==="dashboard"&&(
+          <div className="fin">
+            <SH title="Dashboard" sub="Your complete fuel, toll & distance overview — starts at zero"/>
+            <div className="g4" style={{marginBottom:18}}>
+              {[
+                {ic:"💰",lb:"Total Spend",   v:stats.total?`₹${stats.total.toLocaleString("en-IN")}`:"₹0",            c:"var(--amber)"},
+                {ic:"⛽",lb:"Fuel Cost",     v:(stats.tf+stats.fls)?`₹${(stats.tf+stats.fls).toLocaleString("en-IN")}`:"₹0", c:"var(--green)"},
+                {ic:"🛣️",lb:"Total Toll",    v:stats.tt?`₹${stats.tt.toLocaleString("en-IN")}`:"₹0",                 c:"var(--red)"},
+                {ic:"📍",lb:"Distance",      v:stats.td?`${Math.round(stats.td).toLocaleString("en-IN")} km`:"0 km",  c:"var(--blue)"},
+              ].map(c=>(
+                <div key={c.lb} className="card kpi">
+                  <div className="kpi-ghost">{c.ic}</div>
+                  <div style={{fontSize:20}}>{c.ic}</div>
+                  <div className="kpi-val" style={{color:c.c}}>{c.v}</div>
+                  <div className="kpi-lbl">{c.lb}</div>
+                </div>
+              ))}
+            </div>
+            <div className="g2" style={{marginBottom:18}}>
+              <div className="card">
+                <CT ch="🚗 Active Vehicle"/>
+                <div className="fld"><label className="lbl">Vehicle</label>
+                  <select className="inp" value={vKey} onChange={e=>setVKey(e.target.value)}>
+                    {Object.entries(VEHICLES).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}{v.fuelType!=="electric"?` · ${v.mileage}km/L`:""}</option>)}
+                  </select>
+                </div>
+                <SR label="Fuel Type"   value={VEHICLES[vKey]?.fuelType?.toUpperCase()} color="var(--amber)"/>
+                {VEHICLES[vKey]?.fuelType!=="electric"&&<SR label="Std Mileage" value={`${VEHICLES[vKey]?.mileage} km/L`} color="var(--green)"/>}
+                <SR label="Toll Class"  value={`×${VEHICLES[vKey]?.tollM}`}  color="var(--muted)"/>
+                <SR label="Trips Saved" value={trips.length}                  color="var(--blue)"/>
+                <SR label="Fuel Logs"   value={fuelLog.length}                color="var(--teal)"/>
+              </div>
+              <div className="card">
+                <CT ch="⚡ Quick Actions" color="teal"/>
+                {[["🗺️ Plan a New Route","route"],["⛽ Log Fuel Purchase","fuellogs"],["📈 View Analytics","analytics"],["🤖 Ask AI","ai"]].map(([lb,t])=>(
+                  <button key={lb} className="btn-g" onClick={()=>setTab(t)} style={{justifyContent:"flex-start",padding:"10px 14px",width:"100%",marginBottom:8,fontSize:13}}>{lb}</button>
+                ))}
+              </div>
+            </div>
+            <div className="card">
+              <CT ch="📋 Trip History" color="blue"/>
+              {trips.length===0?(
+                <div className="empty">
+                  <div style={{fontSize:38,opacity:.12}}>🗺️</div>
+                  <div style={{fontSize:13,color:"var(--muted)"}}>No trips yet. Plan your first route!</div>
+                  <button className="btn" onClick={()=>setTab("route")} style={{marginTop:8,fontSize:12}}>Plan Route →</button>
+                </div>
+              ):(
+                <div style={{overflowX:"auto"}}>
+                  <table className="tbl">
+                    <thead><tr>{["Date","Route","Vehicle","Distance","Fuel","Toll","Total"].map(h=><th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {trips.map(t=>(
+                        <tr key={t.id}>
+                          <td style={{fontFamily:"var(--mono)",color:"var(--muted)",fontSize:11}}>{t.date}</td>
+                          <td style={{fontWeight:600}}>{t.from} → {t.to}</td>
+                          <td style={{color:"var(--muted)",fontSize:11}}>{t.vehicle}</td>
+                          <td style={{fontFamily:"var(--mono)"}}>{t.km} km</td>
+                          <td style={{fontFamily:"var(--mono)",color:"var(--green)"}}>₹{t.fuelCost.toLocaleString("en-IN")}</td>
+                          <td style={{fontFamily:"var(--mono)",color:"var(--red)"}}>₹{t.toll.toLocaleString("en-IN")}</td>
+                          <td style={{fontFamily:"var(--mono)",color:"var(--amber)",fontWeight:700}}>₹{t.total.toLocaleString("en-IN")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════ ANALYTICS ══════════════════ */}
+        {tab==="analytics"&&(
+          <div className="fin">
+            <SH title="Analytics" sub="Spending trends, breakdowns & smart savings insights"/>
+            {trips.length===0&&fuelLog.length===0?(
+              <div className="card"><div className="empty">
+                <div style={{fontSize:40,opacity:.1}}>📈</div>
+                <div style={{fontSize:13,color:"var(--muted)"}}>No data yet — plan trips or log fuel to see analytics.</div>
+                <div style={{display:"flex",gap:10,marginTop:12}}>
+                  <button className="btn" onClick={()=>setTab("route")} style={{fontSize:12}}>Plan Route</button>
+                  <button className="btn-o" onClick={()=>setTab("fuellogs")} style={{fontSize:12}}>Log Fuel</button>
+                </div>
+              </div></div>
+            ):(
+              <>
+                <div className="g3" style={{marginBottom:16}}>
+                  {[
+                    ["Avg Monthly",monthly.length?`₹${Math.round((monthly.reduce((s,m)=>s+m.fuel+m.toll,0))/monthly.length).toLocaleString("en-IN")}`:"—","var(--amber)"],
+                    ["Cost per km", stats.td?`₹${(stats.total/stats.td).toFixed(2)}`:"—","var(--teal)"],
+                    ["Fuel vs Total",stats.total?`${Math.round(((stats.tf+stats.fls)/stats.total)*100)}% fuel`:"—","var(--violet)"],
+                  ].map(([l,v,c])=>(
+                    <div key={l} className="card" style={{textAlign:"center"}}>
+                      <div style={{fontFamily:"var(--mono)",fontSize:24,fontWeight:700,color:c}}>{v}</div>
+                      <div style={{color:"var(--muted)",fontSize:11,marginTop:5}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="g2" style={{marginBottom:16}}>
+                  <div className="card">
+                    <CT ch="📈 Monthly Spend Trend" color="amber"/>
+                    {monthly.length>0?(
+                      <ResponsiveContainer width="100%" height={200}>
+                        <AreaChart data={monthly} margin={{top:4,right:4,bottom:0,left:-12}}>
+                          <defs>
+                            <linearGradient id="gf" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f59e0b" stopOpacity={.3}/><stop offset="100%" stopColor="#f59e0b" stopOpacity={.02}/></linearGradient>
+                            <linearGradient id="gt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f43f5e" stopOpacity={.22}/><stop offset="100%" stopColor="#f43f5e" stopOpacity={.02}/></linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--faint)"/>
+                          <XAxis dataKey="month" stroke="var(--muted)" fontSize={10} tick={{fill:"var(--muted)"}}/>
+                          <YAxis stroke="var(--muted)" fontSize={10} tick={{fill:"var(--muted)"}}/>
+                          <Tooltip content={<CTip/>}/>
+                          <Area type="monotone" dataKey="fuel" stroke="#f59e0b" strokeWidth={2.5} fill="url(#gf)" name="Fuel" dot={{fill:"#f59e0b",r:3}}/>
+                          <Area type="monotone" dataKey="toll" stroke="#f43f5e" strokeWidth={2} fill="url(#gt)" name="Toll" dot={{fill:"#f43f5e",r:3}}/>
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ):(
+                      <div className="empty"><div style={{opacity:.12,fontSize:26}}>📈</div><div style={{fontSize:12,color:"var(--muted)"}}>Save more trips to see trend</div></div>
+                    )}
+                  </div>
+                  <div className="card">
+                    <CT ch="🥧 Expense Split" color="teal"/>
+                    {stats.total>0?(
+                      <>
+                        <ResponsiveContainer width="100%" height={150}>
+                          <PieChart>
+                            <Pie data={[{name:"Trip Fuel",value:stats.tf},{name:"Toll",value:stats.tt},{name:"Fuel Log",value:stats.fls}].filter(d=>d.value>0)}
+                              cx="50%" cy="50%" innerRadius={44} outerRadius={70} dataKey="value" paddingAngle={5}>
+                              {PC.map((c,i)=><Cell key={i} fill={c}/>)}
+                            </Pie>
+                            <Tooltip formatter={v=>[`₹${Math.round(v).toLocaleString("en-IN")}`,""]} contentStyle={{background:"var(--l1)",border:"1px solid var(--bdr)",borderRadius:10,color:"var(--txt)",fontFamily:"var(--mono)",fontSize:11}}/>
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap",marginTop:8}}>
+                          {[["Trip Fuel",stats.tf,PC[0]],["Toll",stats.tt,PC[1]],["Fuel Log",stats.fls,PC[2]]].filter(d=>d[1]>0).map(([n,v,c])=>(
+                            <div key={n} style={{textAlign:"center"}}>
+                              <div style={{color:c,fontSize:10,display:"flex",alignItems:"center",gap:4}}><span style={{width:7,height:7,borderRadius:"50%",background:c,display:"inline-block"}}/>{n}</div>
+                              <div style={{fontFamily:"var(--mono)",fontWeight:700,fontSize:13,marginTop:2}}>₹{Math.round(v).toLocaleString("en-IN")}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ):(
+                      <div className="empty"><div style={{opacity:.12,fontSize:26}}>🥧</div><div style={{fontSize:12,color:"var(--muted)"}}>No spend data yet</div></div>
+                    )}
+                  </div>
+                </div>
+                {monthly.length>0&&(
+                  <div className="card" style={{marginBottom:16}}>
+                    <CT ch="📊 Monthly Bar Chart" color="blue"/>
+                    <ResponsiveContainer width="100%" height={210}>
+                      <BarChart data={monthly} barGap={5} margin={{top:4,right:4,bottom:0,left:-12}}>
+                        <CartesianGrid stroke="var(--faint)" vertical={false}/>
+                        <XAxis dataKey="month" stroke="var(--muted)" fontSize={11} tick={{fill:"var(--muted)"}}/>
+                        <YAxis stroke="var(--muted)" fontSize={11} tick={{fill:"var(--muted)"}}/>
+                        <Tooltip content={<CTip/>}/>
+                        <Bar dataKey="fuel" fill="#f59e0b" name="Fuel" radius={[5,5,0,0]}/>
+                        <Bar dataKey="toll" fill="#f43f5e" name="Toll" radius={[5,5,0,0]}/>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                <div className="card" style={{borderColor:"#f59e0b22"}}>
+                  <CT ch="💡 Smart Insights" color="amber"/>
+                  <div style={{display:"flex",flexDirection:"column",gap:9}}>
+                    {[
+                      stats.td>0?`You've driven ${Math.round(stats.td).toLocaleString("en-IN")} km across ${trips.length} trip${trips.length!==1?"s":""} — avg ₹${trips.length?Math.round(stats.total/trips.length).toLocaleString("en-IN"):"0"} per trip.`:null,
+                      stats.tt&&stats.total?`Tolls are ${Math.round((stats.tt/stats.total)*100)}% of your total — consider state highways for hops under 100 km.`:null,
+                      stats.flL>0?`You've filled ${stats.flL.toFixed(0)}L at avg ₹${stats.avgP.toFixed(2)}/L. Filling in Chandigarh (₹94.24) vs Nagpur (₹110.89) saves ₹${Math.round(stats.flL*(110.89-94.24)).toLocaleString("en-IN")}.`:null,
+                      `Keep FASTag wallet ≥ ₹200 — below ₹100 is flagged and can trigger 2× penalty at some plazas.`,
+                      `At 60–80 km/h your ${VEHICLES[vKey]?.label} uses ~15% less fuel than at 100 km/h — ideal highway cruise speed.`,
+                    ].filter(Boolean).map((tip,i)=>(
+                      <div key={i} style={{display:"flex",gap:11,padding:"10px 13px",background:"var(--bg)",borderRadius:10,border:"1px solid var(--bdr)",fontSize:12,lineHeight:1.7}}>
+                        <span style={{color:"var(--amber)",flexShrink:0}}>💡</span>
+                        <span style={{color:"var(--muted)"}}>{tip}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════ AI CHAT ══════════════════ */}
+        {tab==="ai"&&(
+          <div className="fin chat-g" style={{display:"grid",gridTemplateColumns:"1fr 265px",gap:18}}>
+            <div className="card" style={{display:"flex",flexDirection:"column",height:"76vh",padding:0,overflow:"hidden"}}>
+              <div style={{padding:"13px 18px",borderBottom:"1px solid var(--bdr)",display:"flex",alignItems:"center",gap:11}}>
+                <div style={{width:40,height:40,background:"linear-gradient(135deg,var(--amber),#ea580c)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🤖</div>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14}}>FuelTrack AI</div>
+                  <div style={{fontSize:10,color:"var(--green)",fontFamily:"var(--mono)"}}>● India Fuel & Road Expert</div>
+                </div>
+                <div style={{marginLeft:"auto",display:"flex",gap:7}}>
+                  <span className="tag tg-a">AI Powered</span>
+                  <span className="tag tg-t">{msgs.length-1} msg{msgs.length!==2?"s":""}</span>
+                </div>
+              </div>
+              <div style={{flex:1,overflowY:"auto",padding:"14px",display:"flex",flexDirection:"column",gap:10}}>
+                {msgs.map((m,i)=><div key={i} className={m.role==="user"?"bu fin":"ba fin"}>{m.content}</div>)}
+                {chatBusy&&<div className="ba pul" style={{color:"var(--muted)"}}>Thinking…</div>}
+                <div ref={chatEndRef}/>
+              </div>
+              <div style={{padding:"11px 13px",borderTop:"1px solid var(--bdr)",display:"flex",gap:9}}>
+                <input className="inp" style={{flex:1,fontSize:13}} placeholder="Ask about fuel prices, tolls, mileage, EV, routes…"
+                  value={chatIn} onChange={e=>setChatIn(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&!chatBusy&&sendChat(chatIn)}/>
+                <button className="btn" onClick={()=>sendChat(chatIn)} disabled={chatBusy||!chatIn.trim()} style={{padding:"10px 18px"}}>
+                  {chatBusy?"…":"Send →"}
+                </button>
+              </div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:13}}>
+              <div className="card">
+                <CT ch="⚡ Quick Queries" color="amber"/>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {["How to improve mileage?","Cheapest petrol city India?","NH48 Delhi–Mumbai toll cost?","CNG vs Petrol per km savings?","EV vs petrol car economics?","FASTag rules & penalties?","Best highway driving speed?"].map((q,i)=>(
+                    <button key={i} className="btn-g" onClick={()=>sendChat(q)} style={{fontSize:11,lineHeight:1.5,padding:"7px 11px",textAlign:"left",whiteSpace:"normal"}}>{q}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="card">
+                <CT ch="📡 Session Stats" color="blue"/>
+                <SR label="Trips"         value={trips.length}                                                      color="var(--blue)"/>
+                <SR label="Fuel Entries"  value={fuelLog.length}                                                    color="var(--green)"/>
+                <SR label="Total Km"      value={`${Math.round(stats.td)} km`}                                     color="var(--amber)"/>
+                <SR label="Total Spent"   value={stats.total?`₹${stats.total.toLocaleString("en-IN")}`:"₹0"}      color="var(--amber)"/>
+                <SR label="Vehicle"       value={VEHICLES[vKey]?.label}                                             color="var(--muted)"/>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
