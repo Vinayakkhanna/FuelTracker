@@ -223,18 +223,23 @@ const DEFAULT_TOKEN_TTL_SECONDS = 3600;
 const TOKEN_REFRESH_BUFFER_SECONDS = 60;
 const MIN_TOKEN_TTL_MS = 300000;
 const LOCATION_SEARCH_DEBOUNCE_MS = 250;
-const LIVE_MAPS_HINT_MSG = "⚠ Searching live maps when route is calculated";
+const LIVE_MAPS_HINT_MSG = "⚠ Live maps will be searched when calculating route";
 const CONFIG = {
   GOOGLE_MAPS_API: "YOUR_GOOGLE_MAPS_KEY",
   TOLLGURU_API:    "YOUR_TOLLGURU_KEY",
   AI_API:          "YOUR_ANTHROPIC_KEY",
   MAPPLS_REST_API: URL_PARAMS.get("mapplsKey") || localStorage.getItem("MAPPLS_REST_API") || "",
-  MAPPLS_CLIENT_ID: URL_PARAMS.get("mapplsClientId") || sessionStorage.getItem("MAPPLS_CLIENT_ID") || "",
-  MAPPLS_CLIENT_SECRET: URL_PARAMS.get("mapplsClientSecret") || sessionStorage.getItem("MAPPLS_CLIENT_SECRET") || "",
+  MAPPLS_CLIENT_ID: sessionStorage.getItem("MAPPLS_CLIENT_ID") || "",
+  MAPPLS_CLIENT_SECRET: sessionStorage.getItem("MAPPLS_CLIENT_SECRET") || "",
 };
 if (URL_PARAMS.get("mapplsKey")) localStorage.setItem("MAPPLS_REST_API", URL_PARAMS.get("mapplsKey"));
-if (URL_PARAMS.get("mapplsClientId")) sessionStorage.setItem("MAPPLS_CLIENT_ID", URL_PARAMS.get("mapplsClientId"));
-if (URL_PARAMS.get("mapplsClientSecret")) sessionStorage.setItem("MAPPLS_CLIENT_SECRET", URL_PARAMS.get("mapplsClientSecret"));
+window.setMapplsCredentials = (clientId, clientSecret) => {
+  sessionStorage.setItem("MAPPLS_CLIENT_ID", clientId || "");
+  sessionStorage.setItem("MAPPLS_CLIENT_SECRET", clientSecret || "");
+  CONFIG.MAPPLS_CLIENT_ID = clientId || "";
+  CONFIG.MAPPLS_CLIENT_SECRET = clientSecret || "";
+  mapplsToken = { value:"", exp:0 };
+};
 
 const CITIES = {
   delhi:{lat:28.6139,lng:77.2090},noida:{lat:28.5355,lng:77.3910},
@@ -395,8 +400,12 @@ function parseMaybeNum(v) {
 function normalizeCoords(p) {
   const lat = parseMaybeNum(p?.lat ?? p?.latitude ?? p?.y);
   const lng = parseMaybeNum(p?.lng ?? p?.lon ?? p?.longitude ?? p?.x);
-  if (lat===null || lng===null) return null;
+  if (!isValidCoord(lat, lng)) return null;
   return {lat, lng, found:true};
+}
+
+function isValidCoord(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
 }
 
 function mapplsCredsAvailable() {
@@ -417,7 +426,8 @@ async function getMapplsToken() {
     body
   }, 12000);
   mapplsToken.value = data?.access_token || "";
-  const ttlMs = Math.max(((data?.expires_in || DEFAULT_TOKEN_TTL_SECONDS) - TOKEN_REFRESH_BUFFER_SECONDS) * 1000, MIN_TOKEN_TTL_MS);
+  const expiresIn = Math.max(parseMaybeNum(data?.expires_in) || DEFAULT_TOKEN_TTL_SECONDS, TOKEN_REFRESH_BUFFER_SECONDS + 1);
+  const ttlMs = Math.max((expiresIn - TOKEN_REFRESH_BUFFER_SECONDS) * 1000, MIN_TOKEN_TTL_MS);
   mapplsToken.exp = Date.now() + ttlMs;
   return mapplsToken.value;
 }
@@ -454,6 +464,7 @@ async function resolveCoords(place) {
 
 async function fetchRouteMappls(a,b) {
   if (!CONFIG.MAPPLS_REST_API) return null;
+  if (!isValidCoord(a?.lat, a?.lng) || !isValidCoord(b?.lat, b?.lng)) return null;
   try {
     const routePath = `https://apis.mappls.com/advancedmaps/v1/${encodeURIComponent(CONFIG.MAPPLS_REST_API)}/route_adv/driving/${a.lng},${a.lat};${b.lng},${b.lat}`;
     const url = `${routePath}?alternatives=false&steps=false&overview=full&geometries=geojson`;
@@ -469,6 +480,7 @@ async function fetchRouteMappls(a,b) {
 }
 
 async function fetchRouteOsrm(a,b) {
+  if (!isValidCoord(a?.lat, a?.lng) || !isValidCoord(b?.lat, b?.lng)) return null;
   try {
     const url = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
     const data = await fetchJsonWithTimeout(url, {}, 12000);
@@ -487,7 +499,8 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const c1 = await resolveCoords(from);
   const c2 = await resolveCoords(to);
   if (!c1.found&&!c2.found) throw new Error("Could not locate these cities. Check spelling.");
-  const route = (await fetchRouteMappls(c1,c2)) || (await fetchRouteOsrm(c1,c2));
+  const [mapplsRoute, osrmRoute] = await Promise.all([fetchRouteMappls(c1,c2), fetchRouteOsrm(c1,c2)]);
+  const route = mapplsRoute || osrmRoute;
   const straight=haversineKm(c1,c2);
   const km=(route?.km && route.km>0) ? route.km : Math.round(straight*1.27);
   const v=VEHICLES[vKey];
@@ -570,6 +583,7 @@ const state = {
 const PC=["#f59e0b","#f43f5e","#14b8a6","#7c3aed","#3b82f6"];
 const locationHints = { rFrom:[], rTo:[] };
 const hintTimers = { rFrom:null, rTo:null };
+const hintReqSeq = { rFrom:0, rTo:0 };
 
 let mapInstance = null;
 let mapLayers = {poly:null, mA:null, mB:null};
@@ -656,9 +670,12 @@ async function searchLocationHints(query) {
 
 function refreshHints(field) {
   const q = state[field] || "";
+  const reqId = ++hintReqSeq[field];
   clearTimeout(hintTimers[field]);
   hintTimers[field] = setTimeout(async () => {
-    locationHints[field] = await searchLocationHints(q);
+    const hints = await searchLocationHints(q);
+    if (reqId !== hintReqSeq[field]) return;
+    locationHints[field] = hints;
     if ((state[field] || "") === q) renderApp();
   }, LOCATION_SEARCH_DEBOUNCE_MS);
 }
