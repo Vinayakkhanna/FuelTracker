@@ -1,7 +1,7 @@
 # FuelTrack — India Route Optimizer
 
 <p align="center">
-  <img src="Logo/FUEL%20TRACKER%20WIDE.png" alt="Fuel Tracker wide logo" width="520" />
+  <img src="LOGO/FUEL%20TRACKER%20WIDE.png" alt="Fuel Tracker wide logo" width="520" />
 </p>
 
 FuelTrack is a single-page web application designed to help users estimate and optimize trip expenses across Indian routes. It combines route intelligence, city-aware fuel rates, toll estimation, vehicle profiling, trip history, fuel logging, analytics, and an in-app AI assistant in a fast, client-side interface.
