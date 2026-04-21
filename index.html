@@ -218,11 +218,18 @@
 /* ═══════════════════════════════════════════════════════════
    INTERNAL CONFIG & DATA
 ═══════════════════════════════════════════════════════════ */
+const URL_PARAMS = new URLSearchParams(window.location.search);
 const CONFIG = {
   GOOGLE_MAPS_API: "YOUR_GOOGLE_MAPS_KEY",
   TOLLGURU_API:    "YOUR_TOLLGURU_KEY",
   AI_API:          "YOUR_ANTHROPIC_KEY",
+  MAPPLS_REST_API: URL_PARAMS.get("mapplsKey") || localStorage.getItem("MAPPLS_REST_API") || "",
+  MAPPLS_CLIENT_ID: URL_PARAMS.get("mapplsClientId") || localStorage.getItem("MAPPLS_CLIENT_ID") || "",
+  MAPPLS_CLIENT_SECRET: URL_PARAMS.get("mapplsClientSecret") || localStorage.getItem("MAPPLS_CLIENT_SECRET") || "",
 };
+if (URL_PARAMS.get("mapplsKey")) localStorage.setItem("MAPPLS_REST_API", URL_PARAMS.get("mapplsKey"));
+if (URL_PARAMS.get("mapplsClientId")) localStorage.setItem("MAPPLS_CLIENT_ID", URL_PARAMS.get("mapplsClientId"));
+if (URL_PARAMS.get("mapplsClientSecret")) localStorage.setItem("MAPPLS_CLIENT_SECRET", URL_PARAMS.get("mapplsClientSecret"));
 
 const CITIES = {
   delhi:{lat:28.6139,lng:77.2090},noida:{lat:28.5355,lng:77.3910},
@@ -363,12 +370,120 @@ function efficiencyRating(mileage,fuelType) {
   return               {label:"Low",       pct:18,color:"#f43f5e",grade:"D"};
 }
 
+let mapplsToken = { value:"", exp:0 };
+
+async function fetchJsonWithTimeout(url, opts={}, timeoutMs=10000) {
+  const c = new AbortController();
+  const t = setTimeout(()=>c.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, {...opts, signal:c.signal});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+
+function parseMaybeNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeCoords(p) {
+  const lat = parseMaybeNum(p?.lat ?? p?.latitude ?? p?.y);
+  const lng = parseMaybeNum(p?.lng ?? p?.lon ?? p?.longitude ?? p?.x);
+  if (lat===null || lng===null) return null;
+  return {lat, lng, found:true};
+}
+
+function mapplsCredsAvailable() {
+  return !!(CONFIG.MAPPLS_CLIENT_ID && CONFIG.MAPPLS_CLIENT_SECRET);
+}
+
+async function getMapplsToken() {
+  if (!mapplsCredsAvailable()) return "";
+  if (mapplsToken.value && Date.now() < mapplsToken.exp) return mapplsToken.value;
+  const body = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: CONFIG.MAPPLS_CLIENT_ID,
+    client_secret: CONFIG.MAPPLS_CLIENT_SECRET,
+  });
+  const data = await fetchJsonWithTimeout("https://outpost.mappls.com/api/security/oauth/token", {
+    method: "POST",
+    headers: {"Content-Type":"application/x-www-form-urlencoded"},
+    body
+  }, 12000);
+  mapplsToken.value = data?.access_token || "";
+  const ttlMs = Math.max(((data?.expires_in || 3600) - 60) * 1000, 300000);
+  mapplsToken.exp = Date.now() + ttlMs;
+  return mapplsToken.value;
+}
+
+async function geocodeWithMappls(query) {
+  const q = (query||"").trim();
+  if (!q) return null;
+  try {
+    const token = await getMapplsToken();
+    if (!token) return null;
+    const url = `https://atlas.mappls.com/api/places/search/json?query=${encodeURIComponent(q)}&region=IND`;
+    const data = await fetchJsonWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, 12000);
+    const first = data?.suggestedLocations?.[0];
+    return normalizeCoords(first);
+  } catch(_) { return null; }
+}
+
+async function geocodeWithNominatim(query) {
+  const q = (query||"").trim();
+  if (!q) return null;
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&q=${encodeURIComponent(q)}`;
+    const data = await fetchJsonWithTimeout(url, { headers: { "Accept":"application/json" } }, 12000);
+    const first = Array.isArray(data) ? data[0] : null;
+    return normalizeCoords(first);
+  } catch(_) { return null; }
+}
+
+async function resolveCoords(place) {
+  const mapped = findCoords(place);
+  if (mapped.found) return mapped;
+  return (await geocodeWithMappls(place)) || (await geocodeWithNominatim(place)) || mapped;
+}
+
+async function fetchRouteMappls(a,b) {
+  if (!CONFIG.MAPPLS_REST_API) return null;
+  try {
+    const url = `https://apis.mappls.com/advancedmaps/v1/${encodeURIComponent(CONFIG.MAPPLS_REST_API)}/route_adv/driving/${a.lng},${a.lat};${b.lng},${b.lat}?alternatives=false&steps=false&overview=full&geometries=geojson`;
+    const data = await fetchJsonWithTimeout(url, {}, 12000);
+    const route = data?.routes?.[0];
+    const distM = parseMaybeNum(route?.distance);
+    const durS = parseMaybeNum(route?.duration);
+    const coords = route?.geometry?.coordinates;
+    const waypoints = Array.isArray(coords) ? coords.map(([lng,lat])=>({lat,lng})).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lng)) : null;
+    if (!distM || !durS) return null;
+    return { km: Math.round(distM/1000), durationMin: Math.max(1, Math.round(durS/60)), waypoints: waypoints?.length>1 ? waypoints : null };
+  } catch(_) { return null; }
+}
+
+async function fetchRouteOsrm(a,b) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+    const data = await fetchJsonWithTimeout(url, {}, 12000);
+    const route = data?.routes?.[0];
+    if (!route) return null;
+    const coords = route?.geometry?.coordinates;
+    const waypoints = Array.isArray(coords) ? coords.map(([lng,lat])=>({lat,lng})).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lng)) : null;
+    const distM = parseMaybeNum(route?.distance);
+    const durS = parseMaybeNum(route?.duration);
+    if (!distM || !durS) return null;
+    return { km: Math.round(distM/1000), durationMin: Math.max(1, Math.round(durS/60)), waypoints: waypoints?.length>1 ? waypoints : null };
+  } catch(_) { return null; }
+}
+
 const routeService = async (from, to, vKey, customRate, customMileage) => {
-  await new Promise(r=>setTimeout(r,1100));
-  const c1=findCoords(from), c2=findCoords(to);
+  const c1 = await resolveCoords(from);
+  const c2 = await resolveCoords(to);
   if (!c1.found&&!c2.found) throw new Error("Could not locate these cities. Check spelling.");
+  const route = (await fetchRouteMappls(c1,c2)) || (await fetchRouteOsrm(c1,c2));
   const straight=haversineKm(c1,c2);
-  const km=Math.round(straight*1.27);
+  const km=(route?.km && route.km>0) ? route.km : Math.round(straight*1.27);
   const v=VEHICLES[vKey];
   const rate=customRate||getFuelPrice(from,v.fuelType);
   const usedMileage=customMileage||v.mileage;
@@ -376,7 +491,7 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const fuelUsed=v.fuelType==="electric"?0:+(km/usedMileage).toFixed(1);
   const toll=Math.round(km*1.75*v.tollM);
   const tollFreeCost=Math.round(fuelCost*1.09);
-  const durationMin=Math.round(km/72*60);
+  const durationMin=route?.durationMin||Math.round(km/72*60);
   const hrs=Math.floor(durationMin/60), rem=durationMin%60;
   return {
     km, fuelCost, fuelUsed, toll, total:fuelCost+toll,
@@ -386,7 +501,7 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
     cpkm:((fuelCost+toll)/km).toFixed(2),
     from, to, vKey,
     fromCoords:c1, toCoords:c2,
-    waypoints:buildWaypoints(c1,c2,km),
+    waypoints:route?.waypoints||buildWaypoints(c1,c2,km),
     eff:efficiencyRating(usedMileage,v.fuelType),
   };
 };
@@ -447,6 +562,8 @@ const state = {
 };
 
 const PC=["#f59e0b","#f43f5e","#14b8a6","#7c3aed","#3b82f6"];
+const locationHints = { rFrom:[], rTo:[] };
+const hintTimers = { rFrom:null, rTo:null };
 
 let mapInstance = null;
 let mapLayers = {poly:null, mA:null, mB:null};
@@ -502,6 +619,52 @@ function getMonthly() {
   state.fuelLog.forEach(e=>{const k=e.date.slice(0,7);if(!m[k])m[k]={month:k.slice(5),fuel:0,toll:0};m[k].fuel+=e.total;});
   return Object.values(m).sort((a,b)=>a.month.localeCompare(b.month)).slice(-7);
 }
+
+async function searchLocationHints(query) {
+  const q = (query || "").trim();
+  if (q.length < 2) return [];
+  const hints = [];
+
+  try {
+    const token = await getMapplsToken();
+    if (token) {
+      const url = `https://atlas.mappls.com/api/places/search/json?query=${encodeURIComponent(q)}&region=IND`;
+      const data = await fetchJsonWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, 8000);
+      (data?.suggestedLocations || []).forEach(s => {
+        const label = [s.placeName, s.placeAddress].filter(Boolean).join(", ");
+        if (label) hints.push(label);
+      });
+    }
+  } catch(_) {}
+
+  if (hints.length < 6) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=in&q=${encodeURIComponent(q)}`;
+      const data = await fetchJsonWithTimeout(url, { headers: { "Accept":"application/json" } }, 8000);
+      (Array.isArray(data)?data:[]).forEach(s => { if (s?.display_name) hints.push(s.display_name); });
+    } catch(_) {}
+  }
+
+  return [...new Set(hints)].slice(0, 8);
+}
+
+function refreshHints(field) {
+  const q = state[field] || "";
+  clearTimeout(hintTimers[field]);
+  hintTimers[field] = setTimeout(async () => {
+    locationHints[field] = await searchLocationHints(q);
+    if ((state[field] || "") === q) renderApp();
+  }, 250);
+}
+
+window.setLocationField = (field, val) => {
+  state[field] = val;
+  state.rResult = null;
+  state.rErr = "";
+  resetRouteMap();
+  refreshHints(field);
+  renderApp();
+};
 
 /* Actions */
 window.updateState = (key, val) => {
@@ -610,20 +773,26 @@ function genRouteLeft() {
       <div class="fin">
         <div class="fld">
           <label class="lbl">📍 Origin City</label>
-          <input id="inp_rFrom" class="inp" placeholder="e.g. Delhi, Mumbai, Chandigarh…" value="${escapeHTML(state.rFrom)}"
-            oninput="updateState('rFrom', this.value); updateState('rResult', null); resetRouteMap();" />
+          <input id="inp_rFrom" class="inp" list="lst_rFrom" placeholder="e.g. Delhi, Mumbai, Chandigarh…" value="${escapeHTML(state.rFrom)}"
+            oninput="setLocationField('rFrom', this.value)" />
+          <datalist id="lst_rFrom">
+            ${locationHints.rFrom.map(h=>`<option value="${escapeHTML(h)}"></option>`).join("")}
+          </datalist>
           ${state.rFrom ? (fc.found
             ? `<div style="font-size:10px;color:var(--green);margin-top:4px;font-family:var(--mono)">✓ Located · Petrol ₹${getFuelPrice(state.rFrom,"petrol")}/L</div>`
-            : `<div style="font-size:10px;color:var(--amber);margin-top:4px">⚠ Type a recognised Indian city</div>`
+            : `<div style="font-size:10px;color:var(--amber);margin-top:4px">⚠ Searching live maps when route is calculated</div>`
           ) : ''}
         </div>
         <div class="fld">
           <label class="lbl">🏁 Destination City</label>
-          <input id="inp_rTo" class="inp" placeholder="e.g. Jaipur, Pune, Hyderabad…" value="${escapeHTML(state.rTo)}"
-            oninput="updateState('rTo', this.value); updateState('rResult', null); resetRouteMap();" />
+          <input id="inp_rTo" class="inp" list="lst_rTo" placeholder="e.g. Jaipur, Pune, Hyderabad…" value="${escapeHTML(state.rTo)}"
+            oninput="setLocationField('rTo', this.value)" />
+          <datalist id="lst_rTo">
+            ${locationHints.rTo.map(h=>`<option value="${escapeHTML(h)}"></option>`).join("")}
+          </datalist>
           ${state.rTo ? (tc.found
             ? `<div style="font-size:10px;color:var(--green);margin-top:4px;font-family:var(--mono)">✓ Located · Petrol ₹${getFuelPrice(state.rTo,"petrol")}/L</div>`
-            : `<div style="font-size:10px;color:var(--amber);margin-top:4px">⚠ Type a recognised Indian city</div>`
+            : `<div style="font-size:10px;color:var(--amber);margin-top:4px">⚠ Searching live maps when route is calculated</div>`
           ) : ''}
         </div>
         <div style="margin-bottom:13px">
