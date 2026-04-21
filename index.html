@@ -516,7 +516,6 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const route = pickBestRoute([mapplsRoute, osrmRoute]);
   
   const straight = haversineKm(c1,c2);
-  const hasLiveRoute = !!route;
   const km = (route?.km && route.km>0) ? route.km : Math.max(1, Math.round(straight));
   const v = VEHICLES[vKey];
   const rate = customRate ?? getFuelPrice(from, v.fuelType);
@@ -528,7 +527,7 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const usedMileage = customMileage||v.mileage;
   const fuelCost = v.fuelType==="electric" ? Math.round(km*rate) : Math.round((km/usedMileage)*rate);
   const fuelUsed = v.fuelType==="electric" ? 0 : +(km/usedMileage).toFixed(1);
-  const durationMin = route?.durationMin || Math.max(1, Math.round((straight/GEO_ESTIMATE_AVG_SPEED_KPH)*60));
+  const durationMin = Math.max(1, Math.round((km/GEO_ESTIMATE_AVG_SPEED_KPH)*60));
   const hrs = Math.floor(durationMin/60), rem = durationMin%60;
   const wpts = route?.waypoints || [{ lat: c1.lat, lng: c1.lng }, { lat: c2.lat, lng: c2.lng }];
 
@@ -549,7 +548,7 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
     toMeta:{ city:c2.city||"", state:c2.state||"", country:c2.country||"India" },
     waypoints: wpts,
     routeSource: route?.source || "geo",
-    durationSource: hasLiveRoute ? "api" : "geo_estimate",
+    durationSource: "fixed_avg_50_kph",
     tollSource: toll === null ? "unavailable" : "api",
     eff:efficiencyRating(usedMileage,v.fuelType),
   };
@@ -1071,7 +1070,8 @@ function genRouteLeft() {
           `).join('')}
         </div>
         <div style="font-size:10px;color:var(--muted);text-align:center;margin-bottom:13px;line-height:1.4">
-          ${res.routeSource === "geo" ? "Distance and duration are based on direct coordinate analysis (minimum possible path) because live routing API did not respond." : "Distance and duration are from live routing API data."}
+          ${res.routeSource === "geo" ? "Distance is based on direct coordinate analysis (minimum possible path) because live routing API did not respond." : "Distance is from live routing API data."}
+          <span style='color:var(--violet)'> Duration is calculated at a fixed average speed of 50 km/h.</span>
           ${res.toll !== null ? "<span style='color:var(--green)'> Live toll pulled from TollGuru API.</span>" : "<span style='color:var(--red)'> Live toll unavailable (no fake estimate shown).</span>"}
         </div>
         <div style="background:var(--ag);border:1px solid #f59e0b28;border-radius:10px;padding:11px 15px;display:flex;justify-content:space-between;align-items:center;margin-bottom:13px">
@@ -1085,7 +1085,7 @@ function genRouteLeft() {
         <div style="background:var(--bg);border-radius:10px;padding:13px;border:1px solid var(--bdr);margin-top:13px;margin-bottom:13px">
           <div style="font-size:9px;color:var(--muted);font-weight:700;letter-spacing:1.1px;margin-bottom:11px;text-transform:uppercase">🔎 Data Sources Used</div>
           ${SR("Routing", res.routeSource==="mappls"?"Mappls API":res.routeSource==="osrm"?"OSRM API":"Direct coordinate analysis", "var(--amber)")}
-          ${SR("Duration", res.durationSource==="api"?"Live API":"Coordinate-based analysis", "var(--violet)")}
+          ${SR("Duration", "Fixed 50 km/h average", "var(--violet)")}
           ${SR("Toll", res.tollSource==="api"?"TollGuru API":"Unavailable", res.tollSource==="api"?"var(--green)":"var(--red)")}
         </div>
 
@@ -1491,7 +1491,7 @@ function renderMapOverlays() {
         <div class="mchip">
           <span style="color:var(--amber);font-weight:700">${state.rResult.km} km</span>
           <span style="color:var(--dim)">·</span>
-          <span style="color:var(--violet)">${state.rResult.duration}${state.rResult.durationSource==="geo_estimate" ? " (approx)" : ""}</span>
+          <span style="color:var(--violet)">${state.rResult.duration} (50 km/h avg)</span>
         </div>
         <div class="mchip">
           <span style="color:var(--green)">₹${state.rResult.fuelCost.toLocaleString("en-IN")}</span>
