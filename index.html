@@ -228,6 +228,7 @@
 const apiKey = "AIzaSyBuu01BaaIIIU_x9i02pInXtGRP_EsT2lw"; 
 
 const LOCATION_SEARCH_DEBOUNCE_MS = 250;
+const GEO_ESTIMATE_AVG_SPEED_KPH = 50;
 const CONFIG = {
   TOLLGURU_API:    "YOUR_TOLLGURU_KEY", // Replace with real key for live toll prices
   MAPPLS_REST_API: "7cd80c42eece12ac9b848c02b77f45ac",
@@ -308,75 +309,13 @@ function normalizeCityKey(city="") {
   return (city || "").toLowerCase().replace(/,.*$/, "").trim();
 }
 
-const DEFAULT_RATES = {
-  delhi: { petrol: 94.72, diesel: 87.62, cng: 74.09 },
-  mumbai: { petrol: 104.21, diesel: 92.15, cng: 73.50 },
-  bangalore: { petrol: 102.84, diesel: 88.95, cng: 82.50 },
-  bengaluru: { petrol: 102.84, diesel: 88.95, cng: 82.50 },
-  chennai: { petrol: 100.75, diesel: 92.34, cng: 82.00 },
-  kolkata: { petrol: 103.94, diesel: 90.76, cng: 85.00 },
-  hyderabad: { petrol: 107.41, diesel: 95.65, cng: 90.00 },
-  pune: { petrol: 104.08, diesel: 90.62, cng: 87.00 },
-  ahmedabad: { petrol: 94.44, diesel: 90.11, cng: 74.00 },
-  jaipur: { petrol: 104.88, diesel: 90.36, cng: 85.00 },
-  lucknow: { petrol: 94.65, diesel: 87.76, cng: 91.00 },
-  chandigarh: { petrol: 94.24, diesel: 82.40, cng: 87.00 },
-  default: { petrol: 100.00, diesel: 90.00, cng: 80.00 }
-};
-
 function getFuelPrice(city="", type="petrol") {
-  if (type === "electric") return 0;
+  if (type === "electric") return null;
   const c = normalizeCityKey(city);
   
   if (c && Array.isArray(state?.fuelLog)) {
     const match = state.fuelLog.find(e => normalizeCityKey(e.city) === c && e.fuelType === type && Number(e.priceL) > 0);
     if (match) return Number(match.priceL);
-  }
-  
-  if (c && DEFAULT_RATES[c] && DEFAULT_RATES[c][type]) {
-    return DEFAULT_RATES[c][type];
-  }
-  
-  return DEFAULT_RATES.default[type] || null;
-}
-
-function getKnownToll(fromCity, toCity, tollMultiplier = 1.0) {
-  const f = normalizeCityKey(fromCity);
-  const t = normalizeCityKey(toCity);
-  if (!f || !t) return null;
-  
-  // Sort cities alphabetically so A->B and B->A always match the same key
-  const routeKey = [f, t].sort().join('-');
-  
-  // Real-world NHAI / Expressway toll prices for standard Cars (₹)
-  const knownTolls = {
-    'delhi-jaipur': 235,
-    'mumbai-pune': 320,
-    'agra-delhi': 510,
-    'agra-lucknow': 655,
-    'bangalore-hyderabad': 930,
-    'bengaluru-hyderabad': 930,
-    'bangalore-chennai': 480,
-    'bengaluru-chennai': 480,
-    'chandigarh-delhi': 310,
-    'ahmedabad-vadodara': 135,
-    'delhi-meerut': 160,
-    'mumbai-nashik': 140,
-    'bangalore-mysore': 320,
-    'bengaluru-mysore': 320,
-    'chennai-coimbatore': 450,
-    'lucknow-varanasi': 350,
-    'ahmedabad-surat': 250,
-    'dehradun-delhi': 180,
-    'hyderabad-vijayawada': 360,
-    'mumbai-surat': 310,
-    'delhi-ludhiana': 380,
-  };
-
-  const baseToll = knownTolls[routeKey];
-  if (baseToll !== undefined) {
-    // Multiply base car toll by the vehicle class multiplier (e.g. SUV is 1.5x)
-    return Math.round(baseToll * tollMultiplier);
   }
   return null;
 }
@@ -390,8 +329,8 @@ const VEHICLES = {
   bike100:   {label:"Standard Bike / Scooty (Activa)",group:"Two Wheelers",  icon:"🏍️",mileage:55,fuelType:"petrol",tollM:0.4, tollClass: "Motorcycle"},
   bike200:   {label:"Sports Bike (Duke, Enfield)",    group:"Two Wheelers",  icon:"🏍️",mileage:32,fuelType:"petrol",tollM:0.4, tollClass: "Motorcycle"},
   
-  ecar:      {label:"Electric Car (Nexon EV, Tiago)", group:"Electric (EV)", icon:"⚡",mileage:0, fuelType:"electric",tollM:1.0,cpk:1.1, tollClass: "Car"},
-  ebike:     {label:"Electric Scooter (Ola, Ather)",  group:"Electric (EV)", icon:"⚡",mileage:0, fuelType:"electric",tollM:0.2,cpk:0.5, tollClass: "Motorcycle"},
+  ecar:      {label:"Electric Car (Nexon EV, Tiago)", group:"Electric (EV)", icon:"⚡",mileage:0, fuelType:"electric",tollM:1.0, tollClass: "Car"},
+  ebike:     {label:"Electric Scooter (Ola, Ather)",  group:"Electric (EV)", icon:"⚡",mileage:0, fuelType:"electric",tollM:0.2, tollClass: "Motorcycle"},
   
   autorick:  {label:"Auto Rickshaw (CNG)",            group:"Commercial",    icon:"🛺",mileage:28,fuelType:"cng",    tollM:0.5, tollClass: "Auto"},
   pickup:    {label:"Pickup Truck (Bolero Camper)",   group:"Commercial",    icon:"🚚",mileage:10,fuelType:"diesel",  tollM:1.8, tollClass: "LCV"},
@@ -411,20 +350,6 @@ function haversineKm(a,b) {
   const R=6371, dLat=(b.lat-a.lat)*Math.PI/180, dLng=(b.lng-a.lng)*Math.PI/180;
   const x=Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
   return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
-}
-
-function buildWaypoints(a,b,km) {
-  const pts=[{lat:a.lat,lng:a.lng}];
-  const n=Math.min(7,Math.max(3,Math.floor(km/80)));
-  for (let i=1;i<n;i++) {
-    const t=i/n;
-    pts.push({
-      lat:a.lat+(b.lat-a.lat)*t,
-      lng:a.lng+(b.lng-a.lng)*t,
-    });
-  }
-  pts.push({lat:b.lat,lng:b.lng});
-  return pts;
 }
 
 function efficiencyRating(mileage,fuelType) {
@@ -506,6 +431,7 @@ async function fetchRouteMappls(a,b) {
       .sort((x,y)=>(x.distM-y.distM) || (x.durS-y.durS))[0];
     if (!route) return null;
     return {
+      source: "mappls",
       km: Math.round(route.distM/1000),
       durationMin: Math.max(1, Math.round(route.durS/60)),
       waypoints: route.waypoints?.length>1 ? route.waypoints : null
@@ -531,6 +457,7 @@ async function fetchRouteOsrm(a,b) {
       .sort((x,y)=>(x.distM-y.distM) || (x.durS-y.durS))[0];
     if (!route) return null;
     return {
+      source: "osrm",
       km: Math.round(route.distM/1000),
       durationMin: Math.max(1, Math.round(route.durS/60)),
       waypoints: route.waypoints?.length>1 ? route.waypoints : null
@@ -556,7 +483,13 @@ async function fetchTollGuruCost(waypoints, vehicleClass) {
     });
     if(!res.ok) return null;
     const data = await res.json();
-    return Math.round(data.routes[0].costs.minimumTollCost);
+    const tollValue = parseMaybeNum(
+      data?.routes?.[0]?.costs?.minimumTollCost ??
+      data?.routes?.[0]?.costs?.tagAndCash ??
+      data?.routes?.[0]?.costs?.cash
+    );
+    if (!Number.isFinite(tollValue) || tollValue < 0) return null;
+    return Math.round(tollValue);
   } catch(e) {
     return null; 
   }
@@ -583,44 +516,40 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const route = pickBestRoute([mapplsRoute, osrmRoute]);
   
   const straight = haversineKm(c1,c2);
-  const km = (route?.km && route.km>0) ? route.km : Math.round(straight*1.27);
+  const km = (route?.km && route.km>0) ? route.km : Math.max(1, Math.round(straight));
   const v = VEHICLES[vKey];
-  const rate = (v.fuelType==="electric") ? 0 : (customRate ?? getFuelPrice(from, v.fuelType));
-  const usedMileage = customMileage||v.mileage;
-  const fuelCost = v.fuelType==="electric"?Math.round(km*(v.cpk||1)):Math.round((km/usedMileage)*rate);
-  const fuelUsed = v.fuelType==="electric"?0:+(km/usedMileage).toFixed(1);
-  const durationMin = route?.durationMin||Math.round(km/72*60);
-  const hrs = Math.floor(durationMin/60), rem = durationMin%60;
-  const wpts = route?.waypoints||buildWaypoints(c1,c2,km);
-
-  // Fetch or Estimate Toll
-  const realToll = await fetchTollGuruCost(wpts, v.tollClass);
-  const knownToll = getKnownToll(from, to, v.tollM);
-  
-  // Logic: Use paid API if available -> Else use hardcoded real routes -> Else use fallback math
-  let toll = 0;
-  if (realToll !== null) {
-      toll = realToll;
-  } else if (knownToll !== null) {
-      toll = knownToll;
-  } else {
-      // Realistic Estimation: Assume first 40km is city/state. Beyond that, assume 75% is tolled highway at avg ₹1.8/km
-      toll = km > 40 ? Math.round((km * 0.75) * 1.8 * v.tollM) : 0;
+  const rate = customRate ?? getFuelPrice(from, v.fuelType);
+  if (!Number.isFinite(rate) || rate <= 0) {
+    throw new Error(v.fuelType === "electric"
+      ? "Charging cost unavailable. Enter your real charging cost in the charging rate field."
+      : "Fuel rate unavailable. Enter a manual rate or add a fuel log for the origin city.");
   }
+  const usedMileage = customMileage||v.mileage;
+  const fuelCost = v.fuelType==="electric" ? Math.round(km*rate) : Math.round((km/usedMileage)*rate);
+  const fuelUsed = v.fuelType==="electric" ? 0 : +(km/usedMileage).toFixed(1);
+  const durationMin = Math.max(1, Math.round((km/GEO_ESTIMATE_AVG_SPEED_KPH)*60));
+  const hrs = Math.floor(durationMin/60), rem = durationMin%60;
+  const wpts = route?.waypoints || [{ lat: c1.lat, lng: c1.lng }, { lat: c2.lat, lng: c2.lng }];
+
+  // Fetch toll only from live API
+  const realToll = await fetchTollGuruCost(wpts, v.tollClass);
+  const toll = (Number.isFinite(realToll) && realToll >= 0) ? Math.round(realToll) : null;
   
-  const tollFreeCost = Math.round(fuelCost*1.09);
+  const total = fuelCost + (toll ?? 0);
 
   return {
-    km, fuelCost, fuelUsed, toll, total:fuelCost+toll,
-    tollFreeTotal:tollFreeCost, saving:fuelCost+toll-tollFreeCost,
+    km, fuelCost, fuelUsed, toll, total,
     rate, fuelType:v.fuelType, mileage:usedMileage,
     duration:`${hrs>0?hrs+"h ":""}${rem}m`,
-    cpkm:((fuelCost+toll)/km).toFixed(2),
+    cpkm:(total/km).toFixed(2),
     from, to, vKey,
     fromCoords:c1, toCoords:c2,
     fromMeta:{ city:c1.city||"", state:c1.state||"", country:c1.country||"India" },
     toMeta:{ city:c2.city||"", state:c2.state||"", country:c2.country||"India" },
     waypoints: wpts,
+    routeSource: route?.source || "geo",
+    durationSource: "fixed_avg_50_kph",
+    tollSource: toll === null ? "unavailable" : "api",
     eff:efficiencyRating(usedMileage,v.fuelType),
   };
 };
@@ -910,9 +839,11 @@ window.calcRoute = async () => {
   if (!state.rFrom.trim() || !state.rTo.trim()) { updateState('rErr', "Enter both origin and destination."); return; }
   const autoRate = getFuelPrice(state.rFrom, state.rFuelType);
   const manualRate = state.rRate === "" ? null : Number(state.rRate);
-  const rate = state.rFuelType === "electric" ? 0 : (manualRate ?? autoRate);
-  if (state.rFuelType !== "electric" && (!Number.isFinite(rate) || rate <= 0)) {
-    updateState('rErr', "Enter a real fuel rate or add a fuel log for this city and fuel type first.");
+  const rate = manualRate ?? autoRate;
+  if (!Number.isFinite(rate) || rate <= 0) {
+    updateState('rErr', state.rFuelType === "electric"
+      ? "Enter your real charging cost in the charging rate field."
+      : "Enter a real fuel rate or add a fuel log for this city and fuel type first.");
     return;
   }
   state.rErr = ""; state.rLoading = true; state.rResult = null; resetRouteMap(); renderApp();
@@ -1071,15 +1002,16 @@ function genRouteLeft() {
         ${state.rFuelType!=="electric"?`
           <div class="fld">
             <label class="lbl">💰 Fuel Rate (₹/L) — manual or from your logs</label>
-            <input id="inp_rRate" class="inp inp-m" type="number" placeholder="${Number.isFinite(autoRate) ? `${autoRate} (current est.)` : "Enter real current rate"}" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
+            <input id="inp_rFuelRate" class="inp inp-m" type="number" min="0.01" placeholder="${Number.isFinite(autoRate) ? `${autoRate} (latest saved)` : "Enter real current rate"}" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
             <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:5px">
-              <span>${state.rFrom ? `Current est. rate in ${state.rFrom}` : "Enter origin to reuse saved rates"}</span>
+              <span>${state.rFrom ? `Latest saved rate in ${state.rFrom}` : "Enter origin to reuse saved rates"}</span>
               <b style="color:var(--amber);font-family:var(--mono)">${Number.isFinite(autoRate) ? `₹${autoRate}/L` : "Not available"}</b>
             </div>
           </div>
         `:`
-          <div style="background:#22d3ee0a;border:1px solid #22d3ee1a;border-radius:8px;padding:10px 13px;font-size:12px;color:var(--cyan);margin-bottom:13px">
-            ⚡ EV cost calculated at ~₹1.1/km average charging rate
+          <div class="fld">
+            <label class="lbl">⚡ Charging Cost (₹/km)</label>
+            <input id="inp_rChargingRate" class="inp inp-m" type="number" min="0.01" placeholder="Enter your real charging cost per km" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
           </div>
         `}
         <div style="display:flex;gap:9px">
@@ -1128,7 +1060,7 @@ function genRouteLeft() {
             {ic:"📍",v:`${res.km} km`,l:"Distance",c:"var(--blue)"},
             {ic:"⏱️",v:res.duration,l:"Duration",c:"var(--violet)"},
             {ic:"💰",v:`₹${res.fuelCost.toLocaleString("en-IN")}`,l:res.fuelType==="electric"?"Elec. Cost":"Fuel Cost",c:"var(--green)"},
-            {ic:"🛣️",v:`₹${res.toll.toLocaleString("en-IN")}`,l:getKnownToll(res.from, res.to) !== null ? "Toll (Exact)" : "Toll (Est.)",c:"var(--red)"}
+            {ic:"🛣️",v:res.toll !== null ? `₹${res.toll.toLocaleString("en-IN")}` : "N/A",l:res.toll !== null ? "Toll (Live API)" : "Toll (Unavailable)",c:"var(--red)"}
           ].map(m=>`
             <div class="ram">
               <span style="font-size:18px;margin-bottom:3px">${m.ic}</span>
@@ -1138,38 +1070,23 @@ function genRouteLeft() {
           `).join('')}
         </div>
         <div style="font-size:10px;color:var(--muted);text-align:center;margin-bottom:13px;line-height:1.4">
-          Distance & Time via real road routing. ${getKnownToll(res.from, res.to) !== null ? "<span style='color:var(--green)'>Using actual NHAI toll prices for this route.</span>" : "Tolls are mathematically estimated.<br/>(Assumes ~75% highway usage. Real tolls may vary.)"}
+          ${res.routeSource === "geo" ? "Distance is based on direct coordinate analysis (minimum possible path) because live routing API did not respond." : "Distance is from live routing API data."}
+          <span style='color:var(--violet)'> Duration is calculated at a fixed average speed of 50 km/h.</span>
+          ${res.toll !== null ? "<span style='color:var(--green)'> Live toll pulled from TollGuru API.</span>" : "<span style='color:var(--red)'> Live toll unavailable (no fake estimate shown).</span>"}
         </div>
         <div style="background:var(--ag);border:1px solid #f59e0b28;border-radius:10px;padding:11px 15px;display:flex;justify-content:space-between;align-items:center;margin-bottom:13px">
-          <span style="font-size:12px;color:var(--muted)">💵 Total Trip Cost</span>
+          <span style="font-size:12px;color:var(--muted)">💵 ${res.toll !== null ? "Total Trip Cost" : "Trip Cost (fuel only, toll N/A)"}</span>
           <span style="font-family:var(--mono);font-size:21px;font-weight:700;color:var(--amber)">₹${res.total.toLocaleString("en-IN")}</span>
         </div>
         ${res.fuelType!=="electric" ? SR("Fuel Used", `${res.fuelUsed} L`, "var(--muted)") : ''}
-        ${SR("Fuel Rate", res.fuelType==="electric"?"~₹1.1/km":`₹${res.rate}/L`, "var(--muted)")}
+        ${SR("Fuel Rate", res.fuelType==="electric"?`₹${res.rate}/km`:`₹${res.rate}/L`, "var(--muted)")}
         ${SR("Cost per km", `₹${res.cpkm}`, "var(--teal)")}
         
         <div style="background:var(--bg);border-radius:10px;padding:13px;border:1px solid var(--bdr);margin-top:13px;margin-bottom:13px">
-          <div style="font-size:9px;color:var(--muted);font-weight:700;letter-spacing:1.1px;margin-bottom:11px;text-transform:uppercase">⚖️ Route Comparison</div>
-          ${[{lb:"🛣️ Expressway (with toll)",v:res.total,c:"var(--amber)"}, {lb:"🌿 State Highway (no toll)",v:res.tollFreeTotal,c:"var(--blue)"}].map((row,i)=>{
-            const mx = Math.max(res.total, res.tollFreeTotal);
-            return `
-              <div style="${i===0?'margin-bottom:11px':''}">
-                <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:12px">
-                  <span style="color:var(--muted)">${row.lb}</span>
-                  <b style="font-family:var(--mono);color:${row.c}">₹${row.v.toLocaleString("en-IN")}</b>
-                </div>
-                <div style="background:var(--faint);border-radius:99px;height:6px;overflow:hidden">
-                  <div style="width:${Math.round((row.v/mx)*100)}%;height:100%;border-radius:99px;background:${row.c};opacity:.8;transition:width .6s ease"></div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-          <div style="margin-top:9px;font-size:12px;padding:7px 10px;border-radius:8px;
-            color:${res.saving>0?"var(--green)":"var(--amber)"};
-            background:${res.saving>0?"#10b98108":"#f59e0b08"};
-            border:1px solid ${res.saving>0?"#10b98118":"#f59e0b18"}">
-            ${res.saving>0 ? `💡 Avoid toll to save ₹${Math.abs(res.saving).toLocaleString("en-IN")} (route ~7% longer)` : `✅ Expressway saves ₹${Math.abs(res.saving).toLocaleString("en-IN")} vs state roads`}
-          </div>
+          <div style="font-size:9px;color:var(--muted);font-weight:700;letter-spacing:1.1px;margin-bottom:11px;text-transform:uppercase">🔎 Data Sources Used</div>
+          ${SR("Routing", res.routeSource==="mappls"?"Mappls API":res.routeSource==="osrm"?"OSRM API":"Direct coordinate analysis", "var(--amber)")}
+          ${SR("Duration", "Fixed 50 km/h average", "var(--violet)")}
+          ${SR("Toll", res.tollSource==="api"?"TollGuru API":"Unavailable", res.tollSource==="api"?"var(--green)":"var(--red)")}
         </div>
 
         <div style="margin-bottom:13px">
@@ -1226,7 +1143,7 @@ function genFuelLogs() {
           </div>
           ${state.flCity&&state.flFuelType!=="electric"?`
             <div style="background:var(--ag);border:1px solid #f59e0b20;border-radius:8px;padding:7px 12px;margin-bottom:12px;display:flex;justify-content:space-between;font-size:12px">
-              <span style="color:var(--muted)">Current rate — ${escapeHTML(state.flCity)}</span>
+              <span style="color:var(--muted)">Latest saved rate — ${escapeHTML(state.flCity)}</span>
               <b style="font-family:var(--mono);color:var(--amber)">${Number.isFinite(getFuelPrice(state.flCity,state.flFuelType)) ? `₹${getFuelPrice(state.flCity,state.flFuelType)}/L` : "Not available"}</b>
             </div>
           `:''}
@@ -1369,7 +1286,7 @@ function genDashboard() {
                     <td style="color:var(--muted);font-size:11px">${t.vehicle}</td>
                     <td style="font-family:var(--mono)">${t.km} km</td>
                     <td style="font-family:var(--mono);color:var(--green)">₹${t.fuelCost.toLocaleString("en-IN")}</td>
-                    <td style="font-family:var(--mono);color:var(--red)">₹${t.toll.toLocaleString("en-IN")}</td>
+                    <td style="font-family:var(--mono);color:var(--red)">${t.toll === null ? "N/A" : `₹${t.toll.toLocaleString("en-IN")}`}</td>
                     <td style="font-family:var(--mono);color:var(--amber);font-weight:700">₹${t.total.toLocaleString("en-IN")}</td>
                   </tr>
                 `).join('')}
@@ -1574,12 +1491,12 @@ function renderMapOverlays() {
         <div class="mchip">
           <span style="color:var(--amber);font-weight:700">${state.rResult.km} km</span>
           <span style="color:var(--dim)">·</span>
-          <span style="color:var(--violet)">${state.rResult.duration}</span>
+          <span style="color:var(--violet)">${state.rResult.duration} (50 km/h avg)</span>
         </div>
         <div class="mchip">
           <span style="color:var(--green)">₹${state.rResult.fuelCost.toLocaleString("en-IN")}</span>
           <span style="color:var(--dim)">fuel +</span>
-          <span style="color:var(--red)">₹${state.rResult.toll.toLocaleString("en-IN")}</span>
+          <span style="color:var(--red)">${state.rResult.toll !== null ? `₹${state.rResult.toll.toLocaleString("en-IN")}` : "N/A"}</span>
           <span style="color:var(--dim)">toll</span>
         </div>
       </div>
@@ -1589,7 +1506,7 @@ function renderMapOverlays() {
             <span style="display:inline-block;width:18px;height:3px;border-radius:2px;background:var(--amber)"></span>
             <span style="color:var(--muted);font-size:10px">Toll Route</span>
           </span>
-          <span class="tag tg-a">Live</span>
+          <span class="tag ${state.rResult.routeSource==="geo" ? "tg-b" : "tg-a"}">${state.rResult.routeSource==="geo" ? "Approx" : "Live"}</span>
         </div>
       </div>
     `;
