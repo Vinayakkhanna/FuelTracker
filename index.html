@@ -228,6 +228,7 @@
 const apiKey = "AIzaSyBuu01BaaIIIU_x9i02pInXtGRP_EsT2lw"; 
 
 const LOCATION_SEARCH_DEBOUNCE_MS = 250;
+const COORD_FALLBACK_AVG_SPEED_KMPH = 50;
 const CONFIG = {
   TOLLGURU_API:    "YOUR_TOLLGURU_KEY", // Replace with real key for live toll prices
   MAPPLS_REST_API: "7cd80c42eece12ac9b848c02b77f45ac",
@@ -473,7 +474,6 @@ async function fetchTollGuruCost(waypoints, vehicleClass) {
     const payload = {
       from: { lat: waypoints[0].lat, lng: waypoints[0].lng },
       to: { lat: waypoints[waypoints.length-1].lat, lng: waypoints[waypoints.length-1].lng },
-      waypoints: waypoints.slice(1, -1).map(pt => ({ lat: pt.lat, lng: pt.lng })),
       vehicle: { type: vehicleClass }
     };
     const res = await fetch(url, {
@@ -522,13 +522,13 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const rate = customRate ?? getFuelPrice(from, v.fuelType);
   if (!Number.isFinite(rate) || rate <= 0) {
     throw new Error(v.fuelType === "electric"
-      ? "Charging cost unavailable. Enter your real charging cost in ₹/km."
+      ? "Charging cost unavailable. Enter your real charging cost in ₹/km in Step 2."
       : "Fuel rate unavailable. Enter a manual rate or add a fuel log for the origin city.");
   }
   const usedMileage = customMileage||v.mileage;
   const fuelCost = v.fuelType==="electric" ? Math.round(km*rate) : Math.round((km/usedMileage)*rate);
   const fuelUsed = v.fuelType==="electric" ? 0 : +(km/usedMileage).toFixed(1);
-  const durationMin = route?.durationMin || Math.max(1, Math.round((straight/50)*60));
+  const durationMin = route?.durationMin || Math.max(1, Math.round((straight/COORD_FALLBACK_AVG_SPEED_KMPH)*60));
   const hrs = Math.floor(durationMin/60), rem = durationMin%60;
   const wpts = route?.waypoints || [{ lat: c1.lat, lng: c1.lng }, { lat: c2.lat, lng: c2.lng }];
 
@@ -843,7 +843,7 @@ window.calcRoute = async () => {
   const rate = manualRate ?? autoRate;
   if (!Number.isFinite(rate) || rate <= 0) {
     updateState('rErr', state.rFuelType === "electric"
-      ? "Enter your real charging cost in ₹/km."
+      ? "Enter your real charging cost in ₹/km in Step 2."
       : "Enter a real fuel rate or add a fuel log for this city and fuel type first.");
     return;
   }
