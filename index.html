@@ -228,7 +228,7 @@
 const apiKey = "AIzaSyBuu01BaaIIIU_x9i02pInXtGRP_EsT2lw"; 
 
 const LOCATION_SEARCH_DEBOUNCE_MS = 250;
-const GEO_ESTIMATE_AVG_SPEED_KMPH = 50;
+const GEO_ESTIMATE_AVG_SPEED_KPH = 50;
 const CONFIG = {
   TOLLGURU_API:    "YOUR_TOLLGURU_KEY", // Replace with real key for live toll prices
   MAPPLS_REST_API: "7cd80c42eece12ac9b848c02b77f45ac",
@@ -528,7 +528,7 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const usedMileage = customMileage||v.mileage;
   const fuelCost = v.fuelType==="electric" ? Math.round(km*rate) : Math.round((km/usedMileage)*rate);
   const fuelUsed = v.fuelType==="electric" ? 0 : +(km/usedMileage).toFixed(1);
-  const durationMin = route?.durationMin || Math.max(1, Math.round((straight/GEO_ESTIMATE_AVG_SPEED_KMPH)*60));
+  const durationMin = route?.durationMin || Math.max(1, Math.round((straight/GEO_ESTIMATE_AVG_SPEED_KPH)*60));
   const hrs = Math.floor(durationMin/60), rem = durationMin%60;
   const wpts = route?.waypoints || [{ lat: c1.lat, lng: c1.lng }, { lat: c2.lat, lng: c2.lng }];
 
@@ -1003,7 +1003,7 @@ function genRouteLeft() {
         ${state.rFuelType!=="electric"?`
           <div class="fld">
             <label class="lbl">💰 Fuel Rate (₹/L) — manual or from your logs</label>
-            <input id="inp_fuelRate" class="inp inp-m" type="number" min="0.01" placeholder="${Number.isFinite(autoRate) ? `${autoRate} (latest saved)` : "Enter real current rate"}" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
+            <input id="inp_rFuelRate" class="inp inp-m" type="number" min="0.01" placeholder="${Number.isFinite(autoRate) ? `${autoRate} (latest saved)` : "Enter real current rate"}" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
             <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:5px">
               <span>${state.rFrom ? `Latest saved rate in ${state.rFrom}` : "Enter origin to reuse saved rates"}</span>
               <b style="color:var(--amber);font-family:var(--mono)">${Number.isFinite(autoRate) ? `₹${autoRate}/L` : "Not available"}</b>
@@ -1012,7 +1012,7 @@ function genRouteLeft() {
         `:`
           <div class="fld">
             <label class="lbl">⚡ Charging Cost (₹/km)</label>
-            <input id="inp_chargingRate" class="inp inp-m" type="number" min="0.01" placeholder="Enter your real charging cost per km" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
+            <input id="inp_rChargingRate" class="inp inp-m" type="number" min="0.01" placeholder="Enter your real charging cost per km" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
           </div>
         `}
         <div style="display:flex;gap:9px">
@@ -1071,7 +1071,7 @@ function genRouteLeft() {
           `).join('')}
         </div>
         <div style="font-size:10px;color:var(--muted);text-align:center;margin-bottom:13px;line-height:1.4">
-          ${res.routeSource === "geo" ? "Distance and duration are based on direct coordinate analysis because live routing API did not respond." : "Distance and duration are from live routing API data."}
+          ${res.routeSource === "geo" ? "Distance and duration are based on direct coordinate analysis (minimum possible path) because live routing API did not respond." : "Distance and duration are from live routing API data."}
           ${res.toll !== null ? "<span style='color:var(--green)'> Live toll pulled from TollGuru API.</span>" : "<span style='color:var(--red)'> Live toll unavailable (no fake estimate shown).</span>"}
         </div>
         <div style="background:var(--ag);border:1px solid #f59e0b28;border-radius:10px;padding:11px 15px;display:flex;justify-content:space-between;align-items:center;margin-bottom:13px">
