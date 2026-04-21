@@ -522,7 +522,7 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const rate = customRate ?? getFuelPrice(from, v.fuelType);
   if (!Number.isFinite(rate) || rate <= 0) {
     throw new Error(v.fuelType === "electric"
-      ? "Charging cost unavailable. Enter your real charging cost in ₹/km in Step 2."
+      ? "Charging cost unavailable. Enter your real charging cost in the charging rate field."
       : "Fuel rate unavailable. Enter a manual rate or add a fuel log for the origin city.");
   }
   const usedMileage = customMileage||v.mileage;
@@ -534,7 +534,7 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
 
   // Fetch toll only from live API
   const realToll = await fetchTollGuruCost(wpts, v.tollClass);
-  const toll = (Number.isFinite(realToll) && realToll >= 0) ? Math.round(realToll * v.tollM) : null;
+  const toll = (Number.isFinite(realToll) && realToll >= 0) ? Math.round(realToll) : null;
   
   const total = fuelCost + (toll ?? 0);
 
@@ -843,7 +843,7 @@ window.calcRoute = async () => {
   const rate = manualRate ?? autoRate;
   if (!Number.isFinite(rate) || rate <= 0) {
     updateState('rErr', state.rFuelType === "electric"
-      ? "Enter your real charging cost in ₹/km in Step 2."
+      ? "Enter your real charging cost in the charging rate field."
       : "Enter a real fuel rate or add a fuel log for this city and fuel type first.");
     return;
   }
@@ -1003,7 +1003,7 @@ function genRouteLeft() {
         ${state.rFuelType!=="electric"?`
           <div class="fld">
             <label class="lbl">💰 Fuel Rate (₹/L) — manual or from your logs</label>
-            <input id="inp_rRate" class="inp inp-m" type="number" placeholder="${Number.isFinite(autoRate) ? `${autoRate} (latest saved)` : "Enter real current rate"}" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
+            <input id="inp_rRate" class="inp inp-m" type="number" min="0.01" placeholder="${Number.isFinite(autoRate) ? `${autoRate} (latest saved)` : "Enter real current rate"}" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
             <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:5px">
               <span>${state.rFrom ? `Latest saved rate in ${state.rFrom}` : "Enter origin to reuse saved rates"}</span>
               <b style="color:var(--amber);font-family:var(--mono)">${Number.isFinite(autoRate) ? `₹${autoRate}/L` : "Not available"}</b>
@@ -1012,7 +1012,7 @@ function genRouteLeft() {
         `:`
           <div class="fld">
             <label class="lbl">⚡ Charging Cost (₹/km)</label>
-            <input id="inp_rRate" class="inp inp-m" type="number" placeholder="Enter your real charging cost per km" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
+            <input id="inp_rRate" class="inp inp-m" type="number" min="0.01" placeholder="Enter your real charging cost per km" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
           </div>
         `}
         <div style="display:flex;gap:9px">
