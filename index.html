@@ -218,16 +218,14 @@
 /* ═══════════════════════════════════════════════════════════
    INTERNAL CONFIG & DATA
 ═══════════════════════════════════════════════════════════ */
-const URL_PARAMS = new URLSearchParams(window.location.search);
 const LOCATION_SEARCH_DEBOUNCE_MS = 250;
 const LIVE_MAPS_HINT_MSG = "⚠ Live maps will be searched when calculating route";
 const CONFIG = {
   GOOGLE_MAPS_API: "YOUR_GOOGLE_MAPS_KEY",
   TOLLGURU_API:    "YOUR_TOLLGURU_KEY",
   AI_API:          "YOUR_ANTHROPIC_KEY",
-  MAPPLS_REST_API: URL_PARAMS.get("mapplsKey") || sessionStorage.getItem("MAPPLS_REST_API") || "",
+  MAPPLS_REST_API: "7cd80c42eece12ac9b848c02b77f45ac",
 };
-if (URL_PARAMS.get("mapplsKey")) sessionStorage.setItem("MAPPLS_REST_API", URL_PARAMS.get("mapplsKey"));
 
 const CITIES = {
   delhi:{lat:28.6139,lng:77.2090},noida:{lat:28.5355,lng:77.3910},
