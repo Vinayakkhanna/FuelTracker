@@ -228,7 +228,7 @@
 const apiKey = "AIzaSyBuu01BaaIIIU_x9i02pInXtGRP_EsT2lw"; 
 
 const LOCATION_SEARCH_DEBOUNCE_MS = 250;
-const COORD_FALLBACK_AVG_SPEED_KMPH = 50;
+const GEO_ESTIMATE_AVG_SPEED_KMPH = 50;
 const CONFIG = {
   TOLLGURU_API:    "YOUR_TOLLGURU_KEY", // Replace with real key for live toll prices
   MAPPLS_REST_API: "7cd80c42eece12ac9b848c02b77f45ac",
@@ -528,7 +528,7 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const usedMileage = customMileage||v.mileage;
   const fuelCost = v.fuelType==="electric" ? Math.round(km*rate) : Math.round((km/usedMileage)*rate);
   const fuelUsed = v.fuelType==="electric" ? 0 : +(km/usedMileage).toFixed(1);
-  const durationMin = route?.durationMin || Math.max(1, Math.round((straight/COORD_FALLBACK_AVG_SPEED_KMPH)*60));
+  const durationMin = route?.durationMin || Math.max(1, Math.round((straight/GEO_ESTIMATE_AVG_SPEED_KMPH)*60));
   const hrs = Math.floor(durationMin/60), rem = durationMin%60;
   const wpts = route?.waypoints || [{ lat: c1.lat, lng: c1.lng }, { lat: c2.lat, lng: c2.lng }];
 
@@ -863,7 +863,7 @@ window.saveTrip = () => {
     id: Date.now(), date: new Date().toISOString().slice(0,10),
     from: state.rResult.from, to: state.rResult.to, km: state.rResult.km,
     vehicle: VEHICLES[state.vKey]?.label, fuelCost: state.rResult.fuelCost,
-    toll: state.rResult.toll ?? 0, tollAvailable: state.rResult.toll !== null, total: state.rResult.total, mileage: state.rResult.mileage
+    toll: state.rResult.toll, total: state.rResult.total, mileage: state.rResult.mileage
   });
   setTab("dashboard");
 };
@@ -1003,7 +1003,7 @@ function genRouteLeft() {
         ${state.rFuelType!=="electric"?`
           <div class="fld">
             <label class="lbl">💰 Fuel Rate (₹/L) — manual or from your logs</label>
-            <input id="inp_rRate" class="inp inp-m" type="number" min="0.01" placeholder="${Number.isFinite(autoRate) ? `${autoRate} (latest saved)` : "Enter real current rate"}" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
+            <input id="inp_fuelRate" class="inp inp-m" type="number" min="0.01" placeholder="${Number.isFinite(autoRate) ? `${autoRate} (latest saved)` : "Enter real current rate"}" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
             <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:5px">
               <span>${state.rFrom ? `Latest saved rate in ${state.rFrom}` : "Enter origin to reuse saved rates"}</span>
               <b style="color:var(--amber);font-family:var(--mono)">${Number.isFinite(autoRate) ? `₹${autoRate}/L` : "Not available"}</b>
@@ -1012,7 +1012,7 @@ function genRouteLeft() {
         `:`
           <div class="fld">
             <label class="lbl">⚡ Charging Cost (₹/km)</label>
-            <input id="inp_rRate" class="inp inp-m" type="number" min="0.01" placeholder="Enter your real charging cost per km" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
+            <input id="inp_chargingRate" class="inp inp-m" type="number" min="0.01" placeholder="Enter your real charging cost per km" value="${escapeHTML(state.rRate)}" oninput="state.rRate = this.value"/>
           </div>
         `}
         <div style="display:flex;gap:9px">
@@ -1286,7 +1286,7 @@ function genDashboard() {
                     <td style="color:var(--muted);font-size:11px">${t.vehicle}</td>
                     <td style="font-family:var(--mono)">${t.km} km</td>
                     <td style="font-family:var(--mono);color:var(--green)">₹${t.fuelCost.toLocaleString("en-IN")}</td>
-                    <td style="font-family:var(--mono);color:var(--red)">${t.tollAvailable===false ? "N/A" : `₹${t.toll.toLocaleString("en-IN")}`}</td>
+                    <td style="font-family:var(--mono);color:var(--red)">${t.toll === null ? "N/A" : `₹${t.toll.toLocaleString("en-IN")}`}</td>
                     <td style="font-family:var(--mono);color:var(--amber);font-weight:700">₹${t.total.toLocaleString("en-IN")}</td>
                   </tr>
                 `).join('')}
