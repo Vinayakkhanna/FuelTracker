@@ -219,27 +219,15 @@
    INTERNAL CONFIG & DATA
 ═══════════════════════════════════════════════════════════ */
 const URL_PARAMS = new URLSearchParams(window.location.search);
-const DEFAULT_TOKEN_TTL_SECONDS = 3600;
-const TOKEN_REFRESH_BUFFER_SECONDS = 60;
-const MIN_TOKEN_TTL_MS = 300000;
 const LOCATION_SEARCH_DEBOUNCE_MS = 250;
 const LIVE_MAPS_HINT_MSG = "⚠ Live maps will be searched when calculating route";
 const CONFIG = {
   GOOGLE_MAPS_API: "YOUR_GOOGLE_MAPS_KEY",
   TOLLGURU_API:    "YOUR_TOLLGURU_KEY",
   AI_API:          "YOUR_ANTHROPIC_KEY",
-  MAPPLS_REST_API: URL_PARAMS.get("mapplsKey") || localStorage.getItem("MAPPLS_REST_API") || "",
-  MAPPLS_CLIENT_ID: sessionStorage.getItem("MAPPLS_CLIENT_ID") || "",
-  MAPPLS_CLIENT_SECRET: sessionStorage.getItem("MAPPLS_CLIENT_SECRET") || "",
+  MAPPLS_REST_API: URL_PARAMS.get("mapplsKey") || sessionStorage.getItem("MAPPLS_REST_API") || "",
 };
-if (URL_PARAMS.get("mapplsKey")) localStorage.setItem("MAPPLS_REST_API", URL_PARAMS.get("mapplsKey"));
-window.setMapplsCredentials = (clientId, clientSecret) => {
-  sessionStorage.setItem("MAPPLS_CLIENT_ID", clientId || "");
-  sessionStorage.setItem("MAPPLS_CLIENT_SECRET", clientSecret || "");
-  CONFIG.MAPPLS_CLIENT_ID = clientId || "";
-  CONFIG.MAPPLS_CLIENT_SECRET = clientSecret || "";
-  mapplsToken = { value:"", exp:0 };
-};
+if (URL_PARAMS.get("mapplsKey")) sessionStorage.setItem("MAPPLS_REST_API", URL_PARAMS.get("mapplsKey"));
 
 const CITIES = {
   delhi:{lat:28.6139,lng:77.2090},noida:{lat:28.5355,lng:77.3910},
@@ -380,8 +368,6 @@ function efficiencyRating(mileage,fuelType) {
   return               {label:"Low",       pct:18,color:"#f43f5e",grade:"D"};
 }
 
-let mapplsToken = { value:"", exp:0 };
-
 async function fetchJsonWithTimeout(url, opts={}, timeoutMs=10000) {
   const c = new AbortController();
   const t = setTimeout(()=>c.abort(), timeoutMs);
@@ -408,43 +394,6 @@ function isValidCoord(lat, lng) {
   return Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
 }
 
-function mapplsCredsAvailable() {
-  return !!(CONFIG.MAPPLS_CLIENT_ID && CONFIG.MAPPLS_CLIENT_SECRET);
-}
-
-async function getMapplsToken() {
-  if (!mapplsCredsAvailable()) return "";
-  if (mapplsToken.value && Date.now() < mapplsToken.exp) return mapplsToken.value;
-  const body = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: CONFIG.MAPPLS_CLIENT_ID,
-    client_secret: CONFIG.MAPPLS_CLIENT_SECRET,
-  });
-  const data = await fetchJsonWithTimeout("https://outpost.mappls.com/api/security/oauth/token", {
-    method: "POST",
-    headers: {"Content-Type":"application/x-www-form-urlencoded"},
-    body
-  }, 12000);
-  mapplsToken.value = data?.access_token || "";
-  const expiresIn = Math.max(parseMaybeNum(data?.expires_in) || DEFAULT_TOKEN_TTL_SECONDS, TOKEN_REFRESH_BUFFER_SECONDS + 1);
-  const ttlMs = Math.max((expiresIn - TOKEN_REFRESH_BUFFER_SECONDS) * 1000, MIN_TOKEN_TTL_MS);
-  mapplsToken.exp = Date.now() + ttlMs;
-  return mapplsToken.value;
-}
-
-async function geocodeWithMappls(query) {
-  const q = (query||"").trim();
-  if (!q) return null;
-  try {
-    const token = await getMapplsToken();
-    if (!token) return null;
-    const url = `https://atlas.mappls.com/api/places/search/json?query=${encodeURIComponent(q)}&region=IND`;
-    const data = await fetchJsonWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, 12000);
-    const first = data?.suggestedLocations?.[0];
-    return normalizeCoords(first);
-  } catch(_) { return null; }
-}
-
 async function geocodeWithNominatim(query) {
   const q = (query||"").trim();
   if (!q) return null;
@@ -459,7 +408,7 @@ async function geocodeWithNominatim(query) {
 async function resolveCoords(place) {
   const mapped = findCoords(place);
   if (mapped.found) return mapped;
-  return (await geocodeWithMappls(place)) || (await geocodeWithNominatim(place)) || mapped;
+  return (await geocodeWithNominatim(place)) || mapped;
 }
 
 async function fetchRouteMappls(a,b) {
@@ -472,8 +421,7 @@ async function fetchRouteMappls(a,b) {
     const route = data?.routes?.[0];
     const distM = parseMaybeNum(route?.distance);
     const durS = parseMaybeNum(route?.duration);
-    const coords = route?.geometry?.coordinates;
-    const waypoints = Array.isArray(coords) ? coords.map(([lng,lat])=>({lat,lng})).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lng)) : null;
+    const waypoints = toWaypoints(route?.geometry?.coordinates);
     if (!distM || !durS) return null;
     return { km: Math.round(distM/1000), durationMin: Math.max(1, Math.round(durS/60)), waypoints: waypoints?.length>1 ? waypoints : null };
   } catch(_) { return null; }
@@ -486,8 +434,7 @@ async function fetchRouteOsrm(a,b) {
     const data = await fetchJsonWithTimeout(url, {}, 12000);
     const route = data?.routes?.[0];
     if (!route) return null;
-    const coords = route?.geometry?.coordinates;
-    const waypoints = Array.isArray(coords) ? coords.map(([lng,lat])=>({lat,lng})).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lng)) : null;
+    const waypoints = toWaypoints(route?.geometry?.coordinates);
     const distM = parseMaybeNum(route?.distance);
     const durS = parseMaybeNum(route?.duration);
     if (!distM || !durS) return null;
@@ -646,24 +593,13 @@ async function searchLocationHints(query) {
   const hints = [];
 
   try {
-    const token = await getMapplsToken();
-    if (token) {
-      const url = `https://atlas.mappls.com/api/places/search/json?query=${encodeURIComponent(q)}&region=IND`;
-      const data = await fetchJsonWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, 8000);
-      (data?.suggestedLocations || []).forEach(s => {
-        const label = [s.placeName, s.placeAddress].filter(Boolean).join(", ");
-        if (label) hints.push(label);
-      });
-    }
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=in&q=${encodeURIComponent(q)}`;
+    const data = await fetchJsonWithTimeout(url, { headers: { "Accept":"application/json" } }, 8000);
+    (Array.isArray(data)?data:[]).forEach(s => {
+      const locationDisplay = s?.display_name;
+      if (locationDisplay) hints.push(locationDisplay);
+    });
   } catch(_) {}
-
-  if (hints.length < 6) {
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=in&q=${encodeURIComponent(q)}`;
-      const data = await fetchJsonWithTimeout(url, { headers: { "Accept":"application/json" } }, 8000);
-      (Array.isArray(data)?data:[]).forEach(s => { if (s?.display_name) hints.push(s.display_name); });
-    } catch(_) {}
-  }
 
   return [...new Set(hints)].slice(0, 8);
 }
@@ -1343,6 +1279,12 @@ function renderMapOverlays() {
       </div>
     `;
   }
+}
+
+function toWaypoints(coords) {
+  if (!Array.isArray(coords)) return null;
+  const pts = coords.map(([lng,lat])=>({lat,lng})).filter(p=>isValidCoord(p.lat, p.lng));
+  return pts.length > 1 ? pts : null;
 }
 
 function renderCharts() {
