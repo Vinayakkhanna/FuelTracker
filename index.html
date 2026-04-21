@@ -693,9 +693,12 @@ window.sendChat = async (text) => {
 function initMap() {
   if (!window.L || mapInstance || !document.getElementById('map')) return;
   const L = window.L;
-  mapInstance = L.map('map', {center:[22.5,80.5],zoom:5,zoomControl:false,attributionControl:false});
+  mapInstance = L.map('map', {center:[22.5,80.5],zoom:5,zoomControl:false,attributionControl:true});
   L.control.zoom({position:"bottomright"}).addTo(mapInstance);
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:19,subdomains:"abcd"}).addTo(mapInstance);
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{
+    maxZoom:19,
+    attribution:'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+  }).addTo(mapInstance);
 }
 
 function drawRouteOnMap(result) {
