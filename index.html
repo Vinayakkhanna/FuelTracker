@@ -138,7 +138,7 @@
     @keyframes glow{0%,100%{box-shadow:0 0 0 1px #f59e0b18,0 8px 32px #f59e0b08}50%{box-shadow:0 0 0 1px #f59e0b30,0 8px 40px #f59e0b15}}
     .glow{animation:glow 2.5s ease-in-out infinite}
 
-    .leaflet-container{background:#05080e!important;font-family:var(--mono)!important}
+    .leaflet-container{background:transparent!important;font-family:var(--mono)!important}
     .leaflet-control-zoom a{background:var(--l2)!important;color:var(--muted)!important;border-color:var(--bdr)!important;font-size:16px!important}
     .leaflet-control-zoom a:hover{background:var(--l3)!important;color:var(--txt)!important}
     .leaflet-popup-content-wrapper{background:var(--l1)!important;border:1px solid var(--bdr)!important;border-radius:10px!important;box-shadow:0 8px 32px #0009!important;color:var(--txt)!important}
@@ -219,7 +219,6 @@
    INTERNAL CONFIG & DATA
 ═══════════════════════════════════════════════════════════ */
 const LOCATION_SEARCH_DEBOUNCE_MS = 250;
-const LIVE_MAPS_HINT_MSG = "⚠ Live maps will be searched when calculating route";
 const CONFIG = {
   GOOGLE_MAPS_API: "YOUR_GOOGLE_MAPS_KEY",
   TOLLGURU_API:    "YOUR_TOLLGURU_KEY",
@@ -267,12 +266,31 @@ const CITIES = {
   guwahati:{lat:26.1445,lng:91.7362},shillong:{lat:25.5788,lng:91.8933},
 };
 
+function parseLocationParts(input="") {
+  const parts = (input || "").split(",").map(p=>p.trim()).filter(Boolean);
+  const city = parts[0] || "";
+  const country = parts.length ? parts[parts.length-1] : "";
+  const state = parts.length >= 3 ? parts[parts.length-2] : "";
+  return { city, state, country, displayName: parts.join(", ") };
+}
+
 function findCoords(city="") {
-  const c = city.toLowerCase().trim().replace(/,.*$/, "");
+  const raw = (city || "").trim();
+  const c = raw.toLowerCase().replace(/,.*$/, "");
+  const parsed = parseLocationParts(raw);
   for (const [k, v] of Object.entries(CITIES)) {
-    if (c === k || c.startsWith(k) || k.startsWith(c)) return { ...v, found:true };
+    if (c === k || c.startsWith(k) || k.startsWith(c)) {
+      return {
+        ...v,
+        found:true,
+        city: parsed.city || k[0].toUpperCase() + k.slice(1),
+        state: parsed.state || "",
+        country: parsed.country || "India",
+        displayName: parsed.displayName || raw
+      };
+    }
   }
-  return { lat:22.5+Math.random()*6, lng:78+Math.random()*6, found:false };
+  return { lat:null, lng:null, found:false, ...parsed };
 }
 
 const FUEL_DB = {
@@ -349,8 +367,8 @@ function buildWaypoints(a,b,km) {
   for (let i=1;i<n;i++) {
     const t=i/n;
     pts.push({
-      lat:a.lat+(b.lat-a.lat)*t+(Math.random()-0.5)*1.1,
-      lng:a.lng+(b.lng-a.lng)*t+(Math.random()-0.5)*1.1,
+      lat:a.lat+(b.lat-a.lat)*t,
+      lng:a.lng+(b.lng-a.lng)*t,
     });
   }
   pts.push({lat:b.lat,lng:b.lng});
@@ -388,6 +406,13 @@ function normalizeCoords(p) {
   return {lat, lng, found:true};
 }
 
+function normalizePlaceResult(p) {
+  const c = normalizeCoords(p);
+  if (!c) return null;
+  const parsed = parseLocationParts(p?.display_name || "");
+  return { ...c, ...parsed };
+}
+
 function isValidCoord(lat, lng) {
   return Number.isFinite(lat) && Number.isFinite(lng) && lat>=-90 && lat<=90 && lng>=-180 && lng<=180;
 }
@@ -399,7 +424,7 @@ async function geocodeWithNominatim(query) {
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&q=${encodeURIComponent(q)}`;
     const data = await fetchJsonWithTimeout(url, { headers: { "Accept":"application/json" } }, 12000);
     const first = Array.isArray(data) ? data[0] : null;
-    return normalizeCoords(first);
+    return normalizePlaceResult(first);
   } catch(_) { return null; }
 }
 
@@ -414,38 +439,63 @@ async function fetchRouteMappls(a,b) {
   if (!isValidCoord(a?.lat, a?.lng) || !isValidCoord(b?.lat, b?.lng)) return null;
   try {
     const routePath = `https://apis.mappls.com/advancedmaps/v1/${encodeURIComponent(CONFIG.MAPPLS_REST_API)}/route_adv/driving/${a.lng},${a.lat};${b.lng},${b.lat}`;
-    const url = `${routePath}?alternatives=false&steps=false&overview=full&geometries=geojson`;
+    const url = `${routePath}?alternatives=true&steps=false&overview=full&geometries=geojson`;
     const data = await fetchJsonWithTimeout(url, {}, 12000);
-    const route = data?.routes?.[0];
-    const distM = parseMaybeNum(route?.distance);
-    const durS = parseMaybeNum(route?.duration);
-    const waypoints = toWaypoints(route?.geometry?.coordinates);
-    if (!distM || !durS) return null;
-    return { km: Math.round(distM/1000), durationMin: Math.max(1, Math.round(durS/60)), waypoints: waypoints?.length>1 ? waypoints : null };
+    const routes = Array.isArray(data?.routes) ? data.routes : [];
+    const route = routes
+      .map(r => ({
+        route: r,
+        distM: parseMaybeNum(r?.distance),
+        durS: parseMaybeNum(r?.duration),
+        waypoints: toWaypoints(r?.geometry?.coordinates)
+      }))
+      .filter(r => r.distM && r.durS)
+      .sort((x,y)=>(x.distM-y.distM) || (x.durS-y.durS))[0];
+    if (!route) return null;
+    return {
+      km: Math.round(route.distM/1000),
+      durationMin: Math.max(1, Math.round(route.durS/60)),
+      waypoints: route.waypoints?.length>1 ? route.waypoints : null
+    };
   } catch(_) { return null; }
 }
 
 async function fetchRouteOsrm(a,b) {
   if (!isValidCoord(a?.lat, a?.lng) || !isValidCoord(b?.lat, b?.lng)) return null;
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson&alternatives=true`;
     const data = await fetchJsonWithTimeout(url, {}, 12000);
-    const route = data?.routes?.[0];
+    const routes = Array.isArray(data?.routes) ? data.routes : [];
+    const route = routes
+      .map(r => ({
+        route: r,
+        distM: parseMaybeNum(r?.distance),
+        durS: parseMaybeNum(r?.duration),
+        waypoints: toWaypoints(r?.geometry?.coordinates)
+      }))
+      .filter(r => r.distM && r.durS)
+      .sort((x,y)=>(x.distM-y.distM) || (x.durS-y.durS))[0];
     if (!route) return null;
-    const waypoints = toWaypoints(route?.geometry?.coordinates);
-    const distM = parseMaybeNum(route?.distance);
-    const durS = parseMaybeNum(route?.duration);
-    if (!distM || !durS) return null;
-    return { km: Math.round(distM/1000), durationMin: Math.max(1, Math.round(durS/60)), waypoints: waypoints?.length>1 ? waypoints : null };
+    return {
+      km: Math.round(route.distM/1000),
+      durationMin: Math.max(1, Math.round(route.durS/60)),
+      waypoints: route.waypoints?.length>1 ? route.waypoints : null
+    };
   } catch(_) { return null; }
+}
+
+function pickBestRoute(routes=[]) {
+  const valid = routes.filter(r => r && Number.isFinite(r.km) && r.km > 0 && Number.isFinite(r.durationMin) && r.durationMin > 0);
+  if (!valid.length) return null;
+  return valid.sort((a,b)=>(a.km-b.km) || (a.durationMin-b.durationMin))[0];
 }
 
 const routeService = async (from, to, vKey, customRate, customMileage) => {
   const c1 = await resolveCoords(from);
   const c2 = await resolveCoords(to);
-  if (!c1.found&&!c2.found) throw new Error("Could not locate these cities. Check spelling.");
+  if (!c1?.found || !c2?.found) throw new Error("Could not locate one or both places. Check city, state, and country spelling.");
   const [mapplsRoute, osrmRoute] = await Promise.all([fetchRouteMappls(c1,c2), fetchRouteOsrm(c1,c2)]);
-  const route = mapplsRoute || osrmRoute;
+  const route = pickBestRoute([mapplsRoute, osrmRoute]);
   const straight=haversineKm(c1,c2);
   const km=(route?.km && route.km>0) ? route.km : Math.round(straight*1.27);
   const v=VEHICLES[vKey];
@@ -465,6 +515,8 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
     cpkm:((fuelCost+toll)/km).toFixed(2),
     from, to, vKey,
     fromCoords:c1, toCoords:c2,
+    fromMeta:{ city:c1.city||"", state:c1.state||"", country:c1.country||"India" },
+    toMeta:{ city:c2.city||"", state:c2.state||"", country:c2.country||"India" },
     waypoints:route?.waypoints||buildWaypoints(c1,c2,km),
     eff:efficiencyRating(usedMileage,v.fuelType),
   };
@@ -527,6 +579,7 @@ const state = {
 
 const PC=["#f59e0b","#f43f5e","#14b8a6","#7c3aed","#3b82f6"];
 const locationHints = { rFrom:[], rTo:[] };
+const locationStatus = { rFrom:null, rTo:null };
 const hintTimers = { rFrom:null, rTo:null };
 const hintReqSeq = { rFrom:0, rTo:0 };
 
@@ -594,12 +647,27 @@ async function searchLocationHints(query) {
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=in&q=${encodeURIComponent(q)}`;
     const data = await fetchJsonWithTimeout(url, { headers: { "Accept":"application/json" } }, 8000);
     (Array.isArray(data)?data:[]).forEach(s => {
-      const locationDisplay = s?.display_name;
-      if (locationDisplay) hints.push(locationDisplay);
+      const location = normalizePlaceResult(s);
+      if (location?.displayName) hints.push(location);
     });
   } catch(_) {}
 
-  return [...new Set(hints)].slice(0, 8);
+  const seen = new Set();
+  return hints.filter(h => {
+    const key = (h.displayName || "").toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 8);
+}
+
+function deriveLocationStatus(query, hints=[]) {
+  const q = (query || "").trim().toLowerCase();
+  if (!q || q.length < 2) return null;
+  const exact = hints.find(h => ((h.displayName || "").toLowerCase() === q) || ((h.city || "").toLowerCase() === q));
+  const candidate = exact || hints[0];
+  if (!candidate) return null;
+  return { located:true, city:candidate.city||"", state:candidate.state||"", country:candidate.country||"", displayName:candidate.displayName||"" };
 }
 
 function refreshHints(field) {
@@ -610,6 +678,7 @@ function refreshHints(field) {
     const hints = await searchLocationHints(q);
     if (reqId !== hintReqSeq[field]) return;
     locationHints[field] = hints;
+    locationStatus[field] = deriveLocationStatus(q, hints);
     if ((state[field] || "") === q) renderApp();
   }, LOCATION_SEARCH_DEBOUNCE_MS);
 }
@@ -618,6 +687,14 @@ window.setLocationField = (field, val) => {
   state[field] = val;
   state.rResult = null;
   state.rErr = "";
+  const mapped = findCoords(val);
+  locationStatus[field] = mapped?.found ? {
+    located:true,
+    city:mapped.city||"",
+    state:mapped.state||"",
+    country:mapped.country||"",
+    displayName:mapped.displayName||""
+  } : null;
   resetRouteMap();
   refreshHints(field);
   renderApp();
@@ -699,6 +776,12 @@ function initMap() {
     maxZoom:19,
     attribution:'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
   }).addTo(mapInstance);
+  L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",{
+    maxZoom:19,
+    pane:"overlayPane",
+    opacity:0.95,
+    attribution:'Labels &copy; Esri'
+  }).addTo(mapInstance);
 }
 
 function drawRouteOnMap(result) {
@@ -727,8 +810,8 @@ function genRouteLeft() {
   `;
 
   if (state.step === 0) {
-    const fc = state.rFrom ? findCoords(state.rFrom) : null;
-    const tc = state.rTo ? findCoords(state.rTo) : null;
+    const fs = locationStatus.rFrom;
+    const ts = locationStatus.rTo;
     h += `
       <div class="fin">
         <div class="fld">
@@ -736,11 +819,11 @@ function genRouteLeft() {
           <input id="inp_rFrom" class="inp" list="lst_rFrom" placeholder="e.g. Delhi, Mumbai, Chandigarh…" value="${escapeHTML(state.rFrom)}"
             oninput="setLocationField('rFrom', this.value)" />
           <datalist id="lst_rFrom">
-            ${locationHints.rFrom.map(h=>`<option value="${escapeHTML(h)}"></option>`).join("")}
+            ${locationHints.rFrom.map(h=>`<option value="${escapeHTML(h.displayName)}"></option>`).join("")}
           </datalist>
-          ${state.rFrom ? (fc.found
-            ? `<div style="font-size:10px;color:var(--green);margin-top:4px;font-family:var(--mono)">✓ Located · Petrol ₹${getFuelPrice(state.rFrom,"petrol")}/L</div>`
-            : `<div style="font-size:10px;color:var(--amber);margin-top:4px">${LIVE_MAPS_HINT_MSG}</div>`
+          ${state.rFrom ? (fs?.located
+            ? `<div style="font-size:10px;color:var(--green);margin-top:4px;font-family:var(--mono)">✓ Located · City: ${escapeHTML(fs.city||"-")} · State: ${escapeHTML(fs.state||"-")} · Country: ${escapeHTML(fs.country||"-")} · Petrol ₹${getFuelPrice(state.rFrom,"petrol")}/L</div>`
+            : `<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">Searching…</div>`
           ) : ''}
         </div>
         <div class="fld">
@@ -748,11 +831,11 @@ function genRouteLeft() {
           <input id="inp_rTo" class="inp" list="lst_rTo" placeholder="e.g. Jaipur, Pune, Hyderabad…" value="${escapeHTML(state.rTo)}"
             oninput="setLocationField('rTo', this.value)" />
           <datalist id="lst_rTo">
-            ${locationHints.rTo.map(h=>`<option value="${escapeHTML(h)}"></option>`).join("")}
+            ${locationHints.rTo.map(h=>`<option value="${escapeHTML(h.displayName)}"></option>`).join("")}
           </datalist>
-          ${state.rTo ? (tc.found
-            ? `<div style="font-size:10px;color:var(--green);margin-top:4px;font-family:var(--mono)">✓ Located · Petrol ₹${getFuelPrice(state.rTo,"petrol")}/L</div>`
-            : `<div style="font-size:10px;color:var(--amber);margin-top:4px">${LIVE_MAPS_HINT_MSG}</div>`
+          ${state.rTo ? (ts?.located
+            ? `<div style="font-size:10px;color:var(--green);margin-top:4px;font-family:var(--mono)">✓ Located · City: ${escapeHTML(ts.city||"-")} · State: ${escapeHTML(ts.state||"-")} · Country: ${escapeHTML(ts.country||"-")} · Petrol ₹${getFuelPrice(state.rTo,"petrol")}/L</div>`
+            : `<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">Searching…</div>`
           ) : ''}
         </div>
         <div style="margin-bottom:13px">
@@ -1245,8 +1328,22 @@ function renderMapOverlays() {
     emptyContainer.innerHTML = '';
     overlayContainer.innerHTML = `
       <div class="moverlay" style="top:12px;left:12px;display:flex;flex-direction:column;gap:7px">
-        <div class="mchip"><span style="color:var(--green)">📍</span><span style="color:var(--txt);font-weight:600">${escapeHTML(state.rResult.from)}</span></div>
-        <div class="mchip"><span style="color:var(--red)">🏁</span><span style="color:var(--txt);font-weight:600">${escapeHTML(state.rResult.to)}</span></div>
+        <div class="mchip">
+          <span style="color:var(--green)">📍</span>
+          <span style="color:var(--txt);font-weight:600">${escapeHTML(state.rResult.fromMeta?.city || state.rResult.from)}</span>
+          <span style="color:var(--dim)">·</span>
+          <span style="color:var(--muted)">${escapeHTML(state.rResult.fromMeta?.state || "-")}</span>
+          <span style="color:var(--dim)">·</span>
+          <span style="color:var(--muted)">${escapeHTML(state.rResult.fromMeta?.country || "India")}</span>
+        </div>
+        <div class="mchip">
+          <span style="color:var(--red)">🏁</span>
+          <span style="color:var(--txt);font-weight:600">${escapeHTML(state.rResult.toMeta?.city || state.rResult.to)}</span>
+          <span style="color:var(--dim)">·</span>
+          <span style="color:var(--muted)">${escapeHTML(state.rResult.toMeta?.state || "-")}</span>
+          <span style="color:var(--dim)">·</span>
+          <span style="color:var(--muted)">${escapeHTML(state.rResult.toMeta?.country || "India")}</span>
+        </div>
       </div>
       <div class="moverlay" style="top:12px;right:12px;display:flex;flex-direction:column;align-items:flex-end;gap:7px">
         <div class="mchip">
