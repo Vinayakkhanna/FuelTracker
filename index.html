@@ -283,7 +283,7 @@ function findCoords(city="") {
       return {
         ...v,
         found:true,
-        city: parsed.city || k[0].toUpperCase() + k.slice(1),
+        city: parsed.city || (k ? (k[0].toUpperCase() + k.slice(1)) : ""),
         state: parsed.state || "",
         country: parsed.country || "India",
         displayName: parsed.displayName || raw
@@ -493,7 +493,7 @@ function pickBestRoute(routes=[]) {
 const routeService = async (from, to, vKey, customRate, customMileage) => {
   const c1 = await resolveCoords(from);
   const c2 = await resolveCoords(to);
-  if (!c1?.found || !c2?.found) throw new Error("Could not locate one or both places. Check city, state, and country spelling.");
+  if (!c1?.found || !c2?.found) throw new Error("Could not locate one or both places. Please verify your input.");
   const [mapplsRoute, osrmRoute] = await Promise.all([fetchRouteMappls(c1,c2), fetchRouteOsrm(c1,c2)]);
   const route = pickBestRoute([mapplsRoute, osrmRoute]);
   const straight=haversineKm(c1,c2);
