@@ -1222,7 +1222,7 @@ function genRouteLeft() {
         <div style="font-size:10px;color:var(--muted);text-align:center;margin-bottom:13px;line-height:1.4">
           ${res.routeSource === "geo" ? "Distance is based on direct coordinate analysis (minimum possible path) because live routing API did not respond." : "Distance is from live routing API data."}
           <span style='color:var(--violet)'> Duration is calculated at a fixed average speed of 50 km/h.</span>
-          ${res.toll !== null ? `<span style='color:${tollMeta.color}'> ${tollMeta.note}</span>` : "<span style='color:var(--red)'> Live and fallback toll data unavailable.</span>"}
+          ${res.toll !== null ? `<span style="color:${tollMeta.color}"> ${tollMeta.note}</span>` : "<span style=\"color:var(--red)\"> Live and fallback toll data unavailable.</span>"}
         </div>
         <div style="background:var(--ag);border:1px solid #f59e0b28;border-radius:10px;padding:11px 15px;display:flex;justify-content:space-between;align-items:center;margin-bottom:13px">
           <span style="font-size:12px;color:var(--muted)">💵 ${res.toll !== null ? "Total Trip Cost" : "Trip Cost (fuel only, toll N/A)"}</span>
