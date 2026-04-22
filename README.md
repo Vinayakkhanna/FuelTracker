@@ -39,7 +39,7 @@ FuelTrack helps drivers and fleet operators make more informed decisions by esti
 - Real or fallback route distance and duration
 - Vehicle-specific mileage and toll multipliers
 - Fuel-type-aware cost computation (petrol, diesel, CNG, EV)
-- Known route toll pricing for selected Indian corridors
+- Internet-sourced toll fallback pricing for major Indian corridors
 - Personal fuel log data to reuse latest city-specific rates
 
 The app emphasizes practical utility, clear visualizations, and a clean operator-focused UI.
@@ -52,7 +52,7 @@ The app emphasizes practical utility, clear visualizations, and a clean operator
 - **Live map rendering** for selected route with origin/destination markers
 - **Distance and duration estimation** using routing APIs with fallback logic
 - **Fuel cost and toll cost breakdown** with total trip projection
-- **Known toll support** for curated real-world route pairs
+- **Internet-backed toll fallback** when live toll API is unavailable
 - **Fuel Log module** to store fill-up entries and reuse latest rates
 - **Dashboard** for high-level totals (spend, distance, toll, entries)
 - **Analytics** with monthly trends and expense split charts
@@ -119,8 +119,13 @@ At a high level, FuelTrack computes total trip cost as:
 
 ### Toll Cost Priority
 1. Toll API (if configured and available)
-2. Known route toll table (curated route pairs)
-3. Heuristic estimate for remaining routes
+2. Internet-sourced toll corridor database (major Indian routes)
+3. Internet-sourced distance model fallback
+
+### Fuel Rate Priority
+1. User’s latest saved fuel log for city + fuel type
+2. Internet-sourced city fuel dataset (major Indian cities)
+3. India-wide default fallback rate by fuel type
 
 ### Routing Priority
 1. Mappls route API
@@ -228,8 +233,8 @@ Configuration variables are defined in `index.html` under `CONFIG` and top-level
 ## Operational Notes
 
 - Vehicle selection affects both mileage and toll multiplier assumptions.
-- Some route toll values are curated and treated as “exact” for known city pairs.
-- Unknown corridors use estimation heuristics and should be treated as directional planning values.
+- Live toll values are attempted first; if unavailable, internet-sourced corridor/distance fallback pricing is used.
+- Fuel rates are auto-resolved from saved logs first, then internet-sourced city rates, then India-wide defaults.
 - Live routing/geocoding quality depends on network and provider availability.
 
 ---
@@ -261,7 +266,7 @@ Configuration variables are defined in `index.html` under `CONFIG` and top-level
 
 ### Fuel rate looks incorrect
 - Confirm selected city/fuel type.
-- Add a fresh fuel log entry for the city to override defaults.
+- Add a fresh fuel log entry for the city to override internet/default fallback values.
 
 ### AI chat unavailable
 - Confirm AI API key setup and network availability.

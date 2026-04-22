@@ -234,6 +234,85 @@ const CONFIG = {
   MAPPLS_REST_API: "7cd80c42eece12ac9b848c02b77f45ac",
 };
 
+// Internet-sourced fallback fuel data (major Indian cities)
+// Source: https://github.com/TestYourHealth/trip-mate-map/blob/2b51b024388b1bd0ff87bc7b5043be37382fda63/src/data/cityFuelPrices.ts
+const INTERNET_FUEL_PRICES = {
+  delhi:{petrol:94.72,diesel:87.62,cng:74.09,electric:8.0},
+  mumbai:{petrol:104.21,diesel:92.15,cng:75.0,electric:8.5},
+  kolkata:{petrol:104.95,diesel:91.76,cng:76.0,electric:7.5},
+  chennai:{petrol:102.63,diesel:94.24,cng:78.0,electric:7.8},
+  bangalore:{petrol:101.94,diesel:87.89,cng:77.0,electric:8.2},
+  bengaluru:{petrol:101.94,diesel:87.89,cng:77.0,electric:8.2},
+  hyderabad:{petrol:107.41,diesel:97.8,cng:76.5,electric:8.0},
+  ahmedabad:{petrol:94.55,diesel:90.32,cng:72.0,electric:7.5},
+  pune:{petrol:104.44,diesel:91.56,cng:74.0,electric:8.2},
+  jaipur:{petrol:104.88,diesel:90.34,cng:79.0,electric:7.8},
+  lucknow:{petrol:94.63,diesel:87.65,cng:73.0,electric:7.5},
+  kanpur:{petrol:94.63,diesel:87.65,cng:73.5,electric:7.5},
+  nagpur:{petrol:104.51,diesel:91.46,cng:75.0,electric:8.0},
+  indore:{petrol:107.68,diesel:93.41,cng:80.0,electric:7.8},
+  bhopal:{petrol:108.65,diesel:93.9,cng:79.0,electric:7.8},
+  patna:{petrol:107.24,diesel:94.04,cng:82.0,electric:7.5},
+  vadodara:{petrol:94.38,diesel:90.19,cng:72.5,electric:7.5},
+  surat:{petrol:94.59,diesel:90.36,cng:72.0,electric:7.5},
+  chandigarh:{petrol:96.2,diesel:84.26,cng:75.0,electric:7.8},
+  noida:{petrol:94.63,diesel:87.65,cng:73.5,electric:7.5},
+  gurgaon:{petrol:95.0,diesel:86.47,cng:74.0,electric:8.0},
+  gurugram:{petrol:95.0,diesel:86.47,cng:74.0,electric:8.0},
+  faridabad:{petrol:95.0,diesel:86.47,cng:74.5,electric:8.0},
+  coimbatore:{petrol:102.63,diesel:94.24,cng:78.0,electric:7.8},
+  kochi:{petrol:107.71,diesel:96.52,cng:80.0,electric:7.5},
+  thiruvananthapuram:{petrol:107.71,diesel:96.52,cng:80.0,electric:7.5},
+  visakhapatnam:{petrol:108.05,diesel:94.74,cng:77.0,electric:7.8},
+  vijayawada:{petrol:108.05,diesel:94.74,cng:77.0,electric:7.8},
+  bhubaneswar:{petrol:102.81,diesel:94.49,cng:78.0,electric:7.5},
+  ranchi:{petrol:99.53,diesel:94.76,cng:80.0,electric:7.5},
+  raipur:{petrol:102.07,diesel:93.89,cng:79.0,electric:7.5},
+  guwahati:{petrol:96.14,diesel:83.87,cng:82.0,electric:7.5},
+  dehradun:{petrol:94.6,diesel:87.44,cng:76.0,electric:7.8},
+  shimla:{petrol:97.02,diesel:85.25,cng:78.0,electric:7.5},
+  amritsar:{petrol:95.54,diesel:84.21,cng:75.0,electric:7.5},
+  ludhiana:{petrol:95.54,diesel:84.21,cng:75.0,electric:7.5},
+  agra:{petrol:94.63,diesel:87.65,cng:73.0,electric:7.5},
+  varanasi:{petrol:94.63,diesel:87.65,cng:73.5,electric:7.5},
+  meerut:{petrol:94.63,diesel:87.65,cng:73.5,electric:7.5},
+  mysore:{petrol:101.94,diesel:87.89,cng:77.0,electric:8.2},
+  mangalore:{petrol:101.94,diesel:87.89,cng:77.5,electric:8.0},
+  hubli:{petrol:101.94,diesel:87.89,cng:78.0,electric:8.0},
+  nashik:{petrol:104.44,diesel:91.56,cng:75.0,electric:8.0},
+  aurangabad:{petrol:104.44,diesel:91.56,cng:75.5,electric:8.0},
+  jodhpur:{petrol:104.88,diesel:90.34,cng:79.0,electric:7.8},
+  udaipur:{petrol:104.88,diesel:90.34,cng:79.5,electric:7.8},
+  kota:{petrol:104.88,diesel:90.34,cng:79.0,electric:7.8},
+  srinagar:{petrol:101.4,diesel:87.7,cng:85.0,electric:7.5},
+  jammu:{petrol:101.4,diesel:87.7,cng:84.0,electric:7.5},
+};
+
+const INTERNET_DEFAULT_FUEL_PRICES = { petrol:105, diesel:92, cng:75, electric:8 };
+const CITY_ALIASES = {
+  "new delhi":"delhi","bombay":"mumbai","calcutta":"kolkata","bengaluru":"bangalore",
+  "gurugram":"gurgaon","trivandrum":"thiruvananthapuram","vizag":"visakhapatnam","mysuru":"mysore"
+};
+
+// Internet-sourced toll corridor dataset
+// Source: https://github.com/Charankumarcsecit/smartroute2.0/blob/af5aa58429f0a1d36b37d322bb754a2347b87f2b/TOLL_COST_IMPLEMENTATION.md
+const INTERNET_TOLL_CORRIDORS = [
+  { name:"Delhi-Mumbai NH48", cities:["delhi","mumbai","ahmedabad","surat","vadodara"], ratePerKm:2.5 },
+  { name:"Delhi-Jaipur NH48", cities:["delhi","jaipur","ajmer"], ratePerKm:2.3 },
+  { name:"Delhi-Agra-Lucknow NH44", cities:["delhi","agra","lucknow"], ratePerKm:2.0 },
+  { name:"Mumbai-Pune Expressway", cities:["mumbai","pune"], ratePerKm:3.0 },
+  { name:"Delhi-Chandigarh-Amritsar NH44", cities:["delhi","chandigarh","amritsar"], ratePerKm:2.2 },
+  { name:"Bangalore-Chennai NH48", cities:["bangalore","bengaluru","chennai"], ratePerKm:2.0 },
+  { name:"Bangalore-Hyderabad NH44", cities:["bangalore","bengaluru","hyderabad"], ratePerKm:2.1 },
+  { name:"Chennai-Bangalore-Mysore NH275", cities:["chennai","bangalore","bengaluru","mysore"], ratePerKm:1.8 },
+  { name:"Kolkata-Asansol NH19", cities:["kolkata","asansol"], ratePerKm:1.9 },
+  { name:"Hyderabad-Vijayawada NH65", cities:["hyderabad","vijayawada"], ratePerKm:2.0 },
+  { name:"Ahmedabad-Vadodara-Surat NH48", cities:["ahmedabad","vadodara","surat"], ratePerKm:2.4 },
+  { name:"Pune-Solapur NH65", cities:["pune","solapur"], ratePerKm:2.0 },
+  { name:"Gurgaon-Jaipur NH48", cities:["gurgaon","gurugram","jaipur"], ratePerKm:2.5 },
+  { name:"Noida-Agra Expressway", cities:["noida","agra"], ratePerKm:3.2 },
+];
+
 const CITIES = {
   delhi:{lat:28.6139,lng:77.2090},noida:{lat:28.5355,lng:77.3910},
   gurgaon:{lat:28.4595,lng:77.0266},faridabad:{lat:28.4089,lng:77.3178},
@@ -310,14 +389,31 @@ function normalizeCityKey(city="") {
 }
 
 function getFuelPrice(city="", type="petrol") {
-  if (type === "electric") return null;
+  if (!INTERNET_DEFAULT_FUEL_PRICES[type]) return null;
   const c = normalizeCityKey(city);
   
   if (c && Array.isArray(state?.fuelLog)) {
     const match = state.fuelLog.find(e => normalizeCityKey(e.city) === c && e.fuelType === type && Number(e.priceL) > 0);
     if (match) return Number(match.priceL);
   }
-  return null;
+
+  const keys = [];
+  if (c) {
+    keys.push(c);
+    if (CITY_ALIASES[c]) keys.push(CITY_ALIASES[c]);
+    const words = c.split(/\s+/).filter(Boolean);
+    words.forEach(w => {
+      if (INTERNET_FUEL_PRICES[w]) keys.push(w);
+      if (CITY_ALIASES[w]) keys.push(CITY_ALIASES[w]);
+    });
+  }
+
+  for (const key of keys) {
+    const data = INTERNET_FUEL_PRICES[key];
+    if (data && Number.isFinite(data[type]) && data[type] > 0) return data[type];
+  }
+
+  return INTERNET_DEFAULT_FUEL_PRICES[type] ?? null;
 }
 
 const VEHICLES = {
@@ -495,6 +591,45 @@ async function fetchTollGuruCost(waypoints, vehicleClass) {
   }
 }
 
+function resolveCityKeys(place="") {
+  const raw = (place || "").toLowerCase().trim();
+  const parsed = parseLocationParts(place);
+  const base = normalizeCityKey(parsed.city || raw);
+  const keys = new Set();
+  [base, raw].filter(Boolean).forEach(k => {
+    keys.add(k);
+    if (CITY_ALIASES[k]) keys.add(CITY_ALIASES[k]);
+  });
+  return [...keys];
+}
+
+function estimateInternetToll(from, to, km, vKey) {
+  if (!Number.isFinite(km) || km <= 0) return null;
+  const fromKeys = resolveCityKeys(from);
+  const toKeys = resolveCityKeys(to);
+  const tollM = VEHICLES[vKey]?.tollM ?? 1;
+
+  const corridor = INTERNET_TOLL_CORRIDORS.find(r =>
+    fromKeys.some(k => r.cities.includes(k)) && toKeys.some(k => r.cities.includes(k))
+  );
+  if (corridor) {
+    return {
+      toll: Math.round(Math.max(0, km * corridor.ratePerKm * tollM)),
+      source: "internet_route_db",
+      note: corridor.name
+    };
+  }
+
+  if (km < 70) return { toll: 0, source: "internet_estimate", note: "short-route fallback" };
+  const genericRate = (km >= 300 ? 1.85 : 1.65) * tollM;
+  const tolledDistanceFactor = 0.38;
+  return {
+    toll: Math.round(Math.max(0, km * genericRate * tolledDistanceFactor)),
+    source: "internet_estimate",
+    note: "distance model"
+  };
+}
+
 function pickBestRoute(routes=[]) {
   const valid = routes.filter(r => r && Number.isFinite(r.km) && r.km > 0 && Number.isFinite(r.durationMin) && r.durationMin > 0);
   if (!valid.length) return null;
@@ -531,9 +666,12 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
   const hrs = Math.floor(durationMin/60), rem = durationMin%60;
   const wpts = route?.waypoints || [{ lat: c1.lat, lng: c1.lng }, { lat: c2.lat, lng: c2.lng }];
 
-  // Fetch toll only from live API
+  // Fetch toll from live API first, then internet-sourced fallback model
   const realToll = await fetchTollGuruCost(wpts, v.tollClass);
-  const toll = (Number.isFinite(realToll) && realToll >= 0) ? Math.round(realToll) : null;
+  const internetToll = (!Number.isFinite(realToll) || realToll < 0) ? estimateInternetToll(from, to, km, vKey) : null;
+  const toll = (Number.isFinite(realToll) && realToll >= 0)
+    ? Math.round(realToll)
+    : (internetToll && Number.isFinite(internetToll.toll) ? Math.round(internetToll.toll) : null);
   
   const total = fuelCost + (toll ?? 0);
 
@@ -549,10 +687,21 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
     waypoints: wpts,
     routeSource: route?.source || "geo",
     durationSource: "fixed_avg_50_kph",
-    tollSource: toll === null ? "unavailable" : "api",
+    tollSource: Number.isFinite(realToll) && realToll >= 0 ? "api" : (internetToll?.source || "unavailable"),
+    tollSourceNote: internetToll?.note || "",
     eff:efficiencyRating(usedMileage,v.fuelType),
   };
 };
+
+function getTollSourceMeta(src) {
+  const map = {
+    api: { label: "TollGuru API", badge: "Toll (Live API)", color: "var(--green)", note: "Live toll pulled from TollGuru API." },
+    internet_route_db: { label: "Internet Route DB", badge: "Toll (Internet Route DB)", color: "var(--amber)", note: "Toll estimated using internet-sourced route corridor pricing." },
+    internet_estimate: { label: "Internet Distance Model", badge: "Toll (Internet Fallback)", color: "var(--amber)", note: "Toll estimated using internet-sourced per-km fallback model." },
+    unavailable: { label: "Unavailable", badge: "Toll (Unavailable)", color: "var(--red)", note: "Toll unavailable." },
+  };
+  return map[src] || map.unavailable;
+}
 
 // STATIC FALLBACK IF GEMINI UNAVAILABLE
 const AI_FN_FALLBACK = (q) => {
@@ -1052,6 +1201,7 @@ function genRouteLeft() {
 
   if (state.rResult) {
     const res = state.rResult;
+    const tollMeta = getTollSourceMeta(res.tollSource);
     h += `
       <div class="card card-a glow fin">
         ${CT("📊 Route Analysis", "amber")}
@@ -1060,7 +1210,7 @@ function genRouteLeft() {
             {ic:"📍",v:`${res.km} km`,l:"Distance",c:"var(--blue)"},
             {ic:"⏱️",v:res.duration,l:"Duration",c:"var(--violet)"},
             {ic:"💰",v:`₹${res.fuelCost.toLocaleString("en-IN")}`,l:res.fuelType==="electric"?"Elec. Cost":"Fuel Cost",c:"var(--green)"},
-            {ic:"🛣️",v:res.toll !== null ? `₹${res.toll.toLocaleString("en-IN")}` : "N/A",l:res.toll !== null ? "Toll (Live API)" : "Toll (Unavailable)",c:"var(--red)"}
+            {ic:"🛣️",v:res.toll !== null ? `₹${res.toll.toLocaleString("en-IN")}` : "N/A",l:res.toll !== null ? tollMeta.badge : "Toll (Unavailable)",c:res.toll !== null ? tollMeta.color : "var(--red)"}
           ].map(m=>`
             <div class="ram">
               <span style="font-size:18px;margin-bottom:3px">${m.ic}</span>
@@ -1072,7 +1222,7 @@ function genRouteLeft() {
         <div style="font-size:10px;color:var(--muted);text-align:center;margin-bottom:13px;line-height:1.4">
           ${res.routeSource === "geo" ? "Distance is based on direct coordinate analysis (minimum possible path) because live routing API did not respond." : "Distance is from live routing API data."}
           <span style='color:var(--violet)'> Duration is calculated at a fixed average speed of 50 km/h.</span>
-          ${res.toll !== null ? "<span style='color:var(--green)'> Live toll pulled from TollGuru API.</span>" : "<span style='color:var(--red)'> Live toll unavailable (no fake estimate shown).</span>"}
+          ${res.toll !== null ? `<span style="color:${tollMeta.color}"> ${tollMeta.note}</span>` : "<span style=\"color:var(--red)\"> Live and fallback toll data unavailable.</span>"}
         </div>
         <div style="background:var(--ag);border:1px solid #f59e0b28;border-radius:10px;padding:11px 15px;display:flex;justify-content:space-between;align-items:center;margin-bottom:13px">
           <span style="font-size:12px;color:var(--muted)">💵 ${res.toll !== null ? "Total Trip Cost" : "Trip Cost (fuel only, toll N/A)"}</span>
@@ -1086,7 +1236,7 @@ function genRouteLeft() {
           <div style="font-size:9px;color:var(--muted);font-weight:700;letter-spacing:1.1px;margin-bottom:11px;text-transform:uppercase">🔎 Data Sources Used</div>
           ${SR("Routing", res.routeSource==="mappls"?"Mappls API":res.routeSource==="osrm"?"OSRM API":"Direct coordinate analysis", "var(--amber)")}
           ${SR("Duration", "Fixed 50 km/h average", "var(--violet)")}
-          ${SR("Toll", res.tollSource==="api"?"TollGuru API":"Unavailable", res.tollSource==="api"?"var(--green)":"var(--red)")}
+          ${SR("Toll", tollMeta.label, tollMeta.color, res.tollSourceNote || "")}
         </div>
 
         <div style="margin-bottom:13px">
