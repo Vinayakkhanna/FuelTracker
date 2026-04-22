@@ -305,10 +305,10 @@ const INTERNET_TOLL_CORRIDORS = [
   { name:"Bangalore-Chennai NH48", cities:["bangalore","bengaluru","chennai"], ratePerKm:2.0 },
   { name:"Bangalore-Hyderabad NH44", cities:["bangalore","bengaluru","hyderabad"], ratePerKm:2.1 },
   { name:"Chennai-Bangalore-Mysore NH275", cities:["chennai","bangalore","bengaluru","mysore"], ratePerKm:1.8 },
-  { name:"Kolkata-Asansol NH19", cities:["kolkata"], ratePerKm:1.9 },
+  { name:"Kolkata-Asansol NH19", cities:["kolkata","asansol"], ratePerKm:1.9 },
   { name:"Hyderabad-Vijayawada NH65", cities:["hyderabad","vijayawada"], ratePerKm:2.0 },
   { name:"Ahmedabad-Vadodara-Surat NH48", cities:["ahmedabad","vadodara","surat"], ratePerKm:2.4 },
-  { name:"Pune-Solapur NH65", cities:["pune"], ratePerKm:2.0 },
+  { name:"Pune-Solapur NH65", cities:["pune","solapur"], ratePerKm:2.0 },
   { name:"Gurgaon-Jaipur NH48", cities:["gurgaon","gurugram","jaipur"], ratePerKm:2.5 },
   { name:"Noida-Agra Expressway", cities:["noida","agra"], ratePerKm:3.2 },
 ];
@@ -694,10 +694,13 @@ const routeService = async (from, to, vKey, customRate, customMileage) => {
 };
 
 function getTollSourceMeta(src) {
-  if (src === "api") return { label: "TollGuru API", badge: "Toll (Live API)", color: "var(--green)", note: "Live toll pulled from TollGuru API." };
-  if (src === "internet_route_db") return { label: "Internet Route DB", badge: "Toll (Internet Route DB)", color: "var(--amber)", note: "Toll estimated using internet-sourced route corridor pricing." };
-  if (src === "internet_estimate") return { label: "Internet Distance Model", badge: "Toll (Internet Fallback)", color: "var(--amber)", note: "Toll estimated using internet-sourced per-km fallback model." };
-  return { label: "Unavailable", badge: "Toll (Unavailable)", color: "var(--red)", note: "Toll unavailable." };
+  const map = {
+    api: { label: "TollGuru API", badge: "Toll (Live API)", color: "var(--green)", note: "Live toll pulled from TollGuru API." },
+    internet_route_db: { label: "Internet Route DB", badge: "Toll (Internet Route DB)", color: "var(--amber)", note: "Toll estimated using internet-sourced route corridor pricing." },
+    internet_estimate: { label: "Internet Distance Model", badge: "Toll (Internet Fallback)", color: "var(--amber)", note: "Toll estimated using internet-sourced per-km fallback model." },
+    unavailable: { label: "Unavailable", badge: "Toll (Unavailable)", color: "var(--red)", note: "Toll unavailable." },
+  };
+  return map[src] || map.unavailable;
 }
 
 // STATIC FALLBACK IF GEMINI UNAVAILABLE
